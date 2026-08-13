@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo | PlanHogar</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a href="/" class="logo">Plan<span>Hogar</span></a>
+    <p class="tagline">Catálogo de productos</p>
+  </div>
+</header>
+
+<main class="container">
+
+  <section class="filters" aria-label="Filtros">
+    <div class="filter-group">
+      <label for="search">Buscar</label>
+      <input type="search" id="search" placeholder="Nombre o código (SKU)...">
+    </div>
+
+    <div class="filter-group">
+      <label for="rubro">Rubro</label>
+      <select id="rubro">
+        <option value="">Todos los rubros</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="etiqueta">Etiqueta</label>
+      <select id="etiqueta">
+        <option value="">Todas las etiquetas</option>
+      </select>
+    </div>
+
+    <button id="clear-filters" class="btn-clear" type="button">Limpiar filtros</button>
+  </section>
+
+  <div class="results-bar">
+    <span id="results-count">Cargando productos...</span>
+  </div>
+
+  <section id="grid" class="grid" aria-live="polite"></section>
+
+  <div class="load-more-wrap">
+    <button id="load-more" class="btn-load-more" type="button" hidden>Ver más productos</button>
+  </div>
+
+  <p id="empty-state" class="empty-state" hidden>No se encontraron productos con esos filtros.</p>
+  <p id="error-state" class="error-state" hidden>No se pudo cargar el catálogo. Probá recargar la página.</p>
+
+</main>
+
+<footer class="site-footer">
+  <p>PlanHogar &copy; <span id="year"></span></p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
