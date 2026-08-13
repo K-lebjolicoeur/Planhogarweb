@@ -10,8 +10,13 @@
 
 <header class="site-header">
   <div class="header-inner">
-    <a href="/" class="logo">Plan<span>Hogar</span></a>
-    <p class="tagline">Catálogo de productos</p>
+    <div>
+      <a href="/" class="logo">Plan<span>Hogar</span></a>
+      <p class="tagline">Catálogo de productos</p>
+    </div>
+    <button id="cart-toggle" class="btn-cart" type="button" aria-haspopup="dialog" aria-controls="cart-drawer">
+      🛒 Carrito <span id="cart-count" class="cart-count" hidden>0</span>
+    </button>
   </div>
 </header>
 
@@ -58,6 +63,31 @@
 <footer class="site-footer">
   <p>PlanHogar &copy; <span id="year"></span></p>
 </footer>
+
+<div id="overlay" class="overlay" hidden></div>
+
+<div id="product-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+  <div class="modal-content">
+    <button id="modal-close" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<aside id="cart-drawer" class="cart-drawer" role="dialog" aria-modal="true" aria-label="Carrito de compras" hidden>
+  <div class="cart-drawer-header">
+    <h2>Tu carrito</h2>
+    <button id="cart-close" class="modal-close" type="button" aria-label="Cerrar carrito">&times;</button>
+  </div>
+  <div id="cart-items" class="cart-items"></div>
+  <div class="cart-footer">
+    <div class="cart-total-row">
+      <span>Total</span>
+      <strong id="cart-total">$0</strong>
+    </div>
+    <button id="cart-checkout" class="btn-whatsapp" type="button" disabled>Finalizar pedido por WhatsApp</button>
+    <button id="cart-clear" class="btn-clear-cart" type="button">Vaciar carrito</button>
+  </div>
+</aside>
 
 <script src="app.js"></script>
 </body>
