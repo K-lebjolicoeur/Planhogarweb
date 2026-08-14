@@ -304,28 +304,34 @@
   // producto y devuelve la etiqueta a mostrar + el precio unitario (total
   // a financiar para ese plan, o el precio de contado)
   function resolvePayment(product, mode) {
-    if (!mode || mode === "contado") {
-      return { label: "Contado", unitPrice: Number(product.precio_contado), freqLabel: null };
-    }
+    var contado = {
+      label: "Contado",
+      unitPrice: Number(product.precio_contado),
+      freqLabel: null,
+      cuotas: null,
+      cuotaValor: null,
+    };
+    if (!mode || mode === "contado") return contado;
+
     var parts = mode.split("|");
     var planKey = parts[0];
     var freqLabel = parts[1];
     var plan = planBreakdown(product).filter(function (pl) {
       return pl.key === planKey;
     })[0];
-    if (!plan) {
-      return { label: "Contado", unitPrice: Number(product.precio_contado), freqLabel: null };
-    }
+    if (!plan) return contado;
+
     var row = plan.rows.filter(function (r) {
       return r.freqLabel === freqLabel;
     })[0];
-    if (!row) {
-      return { label: "Contado", unitPrice: Number(product.precio_contado), freqLabel: null };
-    }
+    if (!row) return contado;
+
     return {
       label: plan.label + " - " + freqLabel + " (" + row.cuotas + " cuotas de " + money(row.cuotaValor) + ")",
       unitPrice: plan.total,
       freqLabel: freqLabel,
+      cuotas: row.cuotas,
+      cuotaValor: row.cuotaValor,
     };
   }
 
@@ -672,10 +678,16 @@
   function cartLineInfo(item) {
     var product = state.byId[item.productId];
     if (!product) {
-      return { label: "Cargando precio...", unitPrice: 0, loaded: false };
+      return { label: "Cargando precio...", unitPrice: 0, cuotas: null, cuotaValor: null, loaded: false };
     }
     var resolved = resolvePayment(product, state.cartMode);
-    return { label: resolved.label, unitPrice: resolved.unitPrice, loaded: true };
+    return {
+      label: resolved.label,
+      unitPrice: resolved.unitPrice,
+      cuotas: resolved.cuotas,
+      cuotaValor: resolved.cuotaValor,
+      loaded: true,
+    };
   }
 
   function cartTotal() {
@@ -807,11 +819,15 @@
     var rowsHtml = state.cart
       .map(function (item, i) {
         var info = cartLineInfo(item);
+        var cuotaTxt = info.cuotas
+          ? info.cuotas + " cuotas de " + money(info.cuotaValor) + " c/u"
+          : "Pago único";
         return (
           "<tr>" +
           "<td>" + (i + 1) + "</td>" +
           "<td>" + escapeHtml(item.nombre) + "<br><small>SKU: " + escapeHtml(item.sku || "-") + "</small></td>" +
           "<td>" + item.qty + "</td>" +
+          "<td>" + cuotaTxt + "</td>" +
           "<td>" + money(info.unitPrice * item.qty) + "</td>" +
           "</tr>"
         );
@@ -839,7 +855,7 @@
       "<p class='date'>Pedido del " + today + "</p>" +
       "<p class='plan'>Forma de pago: " + escapeHtml(genericModeLabel(state.cartMode)) + "</p>" +
       (scheduleTxt ? "<p class='schedule'>" + escapeHtml(scheduleTxt) + "</p>" : "") +
-      "<table><thead><tr><th>#</th><th>Producto</th><th>Cant.</th><th>Subtotal</th></tr></thead>" +
+      "<table><thead><tr><th>#</th><th>Producto</th><th>Cant.</th><th>Cuota</th><th>Subtotal</th></tr></thead>" +
       "<tbody>" + rowsHtml + "</tbody></table>" +
       "<p class='total'>Total: " + money(cartTotal()) + "</p>" +
       "</body></html>";
