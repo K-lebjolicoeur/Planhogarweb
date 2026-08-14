@@ -5,7 +5,7 @@
   var IMG_BASE = "https://api.planhogar.com.ar/uploads/";
   var PAGE_SIZE = 30;
   var WHATSAPP_NUMBER = "5493513119444";
-  var CART_KEY = "ph_cart_v1";
+  var CART_KEY = "ph_cart_v2";
 
   // meses base de cada plan (usados para derivar las otras frecuencias)
   var PLAN_MESES = { precio_plan_1: 4, precio_plan_2: 7, precio_plan_3: 10 };
@@ -59,6 +59,7 @@
     cartItems: document.getElementById("cart-items"),
     cartTotal: document.getElementById("cart-total"),
     cartCheckout: document.getElementById("cart-checkout"),
+    cartPdf: document.getElementById("cart-pdf"),
     cartClear: document.getElementById("cart-clear"),
   };
 
@@ -273,6 +274,117 @@
     return plans;
   }
 
+  // resuelve un "mode" ("contado" o "precio_plan_X|FreqLabel") contra el
+  // producto y devuelve la etiqueta a mostrar + el precio unitario (total
+  // a financiar para ese plan, o el precio de contado)
+  function resolvePayment(product, mode) {
+    if (!mode || mode === "contado") {
+      return { label: "Contado", unitPrice: Number(product.precio_contado), freqLabel: null };
+    }
+    var parts = mode.split("|");
+    var planKey = parts[0];
+    var freqLabel = parts[1];
+    var plan = planBreakdown(product).filter(function (pl) {
+      return pl.key === planKey;
+    })[0];
+    if (!plan) {
+      return { label: "Contado", unitPrice: Number(product.precio_contado), freqLabel: null };
+    }
+    var row = plan.rows.filter(function (r) {
+      return r.freqLabel === freqLabel;
+    })[0];
+    if (!row) {
+      return { label: "Contado", unitPrice: Number(product.precio_contado), freqLabel: null };
+    }
+    return {
+      label: plan.label + " - " + freqLabel + " (" + row.cuotas + " cuotas de " + money(row.cuotaValor) + ")",
+      unitPrice: plan.total,
+      freqLabel: freqLabel,
+    };
+  }
+
+  function payModeOptionsHtml(product, selectedMode) {
+    var plans = planBreakdown(product);
+    var selected = selectedMode || "contado";
+    var html =
+      '<option value="contado"' +
+      (selected === "contado" ? " selected" : "") +
+      ">Contado &mdash; " +
+      money(product.precio_contado) +
+      "</option>";
+
+    plans.forEach(function (plan) {
+      html += '<optgroup label="' + escapeHtml(plan.label) + '">';
+      plan.rows.forEach(function (r) {
+        var val = plan.key + "|" + r.freqLabel;
+        html +=
+          '<option value="' +
+          val +
+          '"' +
+          (selected === val ? " selected" : "") +
+          ">" +
+          r.freqLabel +
+          " (" +
+          r.cuotas +
+          " cuotas de " +
+          money(r.cuotaValor) +
+          ")</option>";
+      });
+      html += "</optgroup>";
+    });
+    return html;
+  }
+
+  // ---------- calendario de cuotas ----------
+  // regla: si la fecha calculada cae domingo, se corre al lunes siguiente
+
+  function addDays(date, n) {
+    var d = new Date(date);
+    d.setDate(d.getDate() + n);
+    return d;
+  }
+
+  function shiftSunday(date) {
+    return date.getDay() === 0 ? addDays(date, 1) : date;
+  }
+
+  function formatDate(date) {
+    return date.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" });
+  }
+
+  function weekdayName(date) {
+    return date.toLocaleDateString("es-AR", { weekday: "long" });
+  }
+
+  function scheduleText(freqLabel) {
+    if (!freqLabel) return null;
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (freqLabel === "Diario") {
+      var first = shiftSunday(addDays(today, 1));
+      return "Cobro de lunes a sábado. Primera cuota: " + formatDate(first) + ".";
+    }
+    if (freqLabel === "Semanal") {
+      var firstW = shiftSunday(addDays(today, 7));
+      return "Todas las semanas, los " + weekdayName(firstW) + ". Primera cuota: " + formatDate(firstW) + ".";
+    }
+    if (freqLabel === "Quincenal") {
+      var firstQ = shiftSunday(addDays(today, 14));
+      return "Cada 2 semanas, los " + weekdayName(firstQ) + ". Primera cuota: " + formatDate(firstQ) + ".";
+    }
+    if (freqLabel === "Mensual") {
+      var day = today.getDate();
+      var y = today.getFullYear();
+      var m = today.getMonth() + 1;
+      var lastDayNextMonth = new Date(y, m + 1, 0).getDate();
+      var useDay = Math.min(day, lastDayNextMonth);
+      var firstM = shiftSunday(new Date(y, m, useDay));
+      return "El día " + day + " de cada mes. Primera cuota: " + formatDate(firstM) + ".";
+    }
+    return null;
+  }
+
   // ---------- modal de producto ----------
 
   function openModal(product) {
@@ -304,37 +416,6 @@
       })
       .join("");
 
-    var payOptions =
-      '<option value="contado">Contado &mdash; ' + money(product.precio_contado) + "</option>" +
-      plans
-        .map(function (plan) {
-          return (
-            '<optgroup label="' +
-            escapeHtml(plan.label) +
-            '">' +
-            plan.rows
-              .map(function (r) {
-                var val = plan.key + "|" + r.freqLabel;
-                return (
-                  '<option value="' +
-                  val +
-                  '">' +
-                  escapeHtml(plan.label) +
-                  " - " +
-                  r.freqLabel +
-                  " (" +
-                  r.cuotas +
-                  " cuotas de " +
-                  money(r.cuotaValor) +
-                  ")</option>"
-                );
-              })
-              .join("") +
-            "</optgroup>"
-          );
-        })
-        .join("");
-
     els.modalBody.innerHTML =
       '<div class="modal-photo"><img src="' +
       photoUrl(product) +
@@ -358,8 +439,9 @@
       '<div class="modal-buy">' +
       '<label for="pay-mode">Forma de pago a agregar al carrito</label>' +
       '<select id="pay-mode">' +
-      payOptions +
+      payModeOptionsHtml(product, "contado") +
       "</select>" +
+      '<p id="pay-schedule" class="pay-schedule"></p>' +
       '<div class="qty-row">' +
       '<label for="qty-input">Cantidad</label>' +
       '<div class="qty-stepper">' +
@@ -371,6 +453,18 @@
       '<button type="button" id="modal-add-cart" class="btn-load-more">Agregar al carrito</button>' +
       "</div>";
 
+    var payModeSelect = document.getElementById("pay-mode");
+    var scheduleEl = document.getElementById("pay-schedule");
+
+    function updateSchedulePreview() {
+      var resolved = resolvePayment(product, payModeSelect.value);
+      var text = scheduleText(resolved.freqLabel);
+      scheduleEl.textContent = text || "";
+      scheduleEl.hidden = !text;
+    }
+    payModeSelect.addEventListener("change", updateSchedulePreview);
+    updateSchedulePreview();
+
     document.getElementById("qty-minus").addEventListener("click", function () {
       var input = document.getElementById("qty-input");
       input.value = Math.max(1, (parseInt(input.value, 10) || 1) - 1);
@@ -381,8 +475,7 @@
     });
     document.getElementById("modal-add-cart").addEventListener("click", function () {
       var qty = Math.max(1, parseInt(document.getElementById("qty-input").value, 10) || 1);
-      var mode = document.getElementById("pay-mode").value;
-      addToCartFromMode(product, mode, qty);
+      addToCart(product, payModeSelect.value, qty);
       closeModal();
       openCart();
     });
@@ -400,28 +493,11 @@
     }
   }
 
-  function addToCartFromMode(product, mode, qty) {
-    if (mode === "contado") {
-      addToCart(product, "Contado", Number(product.precio_contado), qty);
-      return;
-    }
-    var parts = mode.split("|");
-    var planKey = parts[0];
-    var freqLabel = parts[1];
-    var plans = planBreakdown(product);
-    var plan = plans.filter(function (pl) {
-      return pl.key === planKey;
-    })[0];
-    if (!plan) return;
-    var row = plan.rows.filter(function (r) {
-      return r.freqLabel === freqLabel;
-    })[0];
-    var modeLabel =
-      plan.label + " - " + freqLabel + " (" + row.cuotas + " cuotas de " + money(row.cuotaValor) + ")";
-    addToCart(product, modeLabel, plan.total, qty);
-  }
-
   // ---------- carrito ----------
+  // cada item guarda productId + mode ("contado" o "planKey|FreqLabel").
+  // nombre/sku/foto quedan cacheados para poder mostrar el carrito incluso
+  // si el catálogo todavía no terminó de cargar; precio y cronograma se
+  // recalculan siempre desde el producto vivo (state.byId) cuando está.
 
   function loadCart() {
     try {
@@ -440,9 +516,10 @@
     }
   }
 
-  function addToCart(product, modeLabel, unitPrice, qty) {
+  function addToCart(product, mode, qty) {
+    mode = mode || "contado";
     var existing = state.cart.filter(function (item) {
-      return item.productId === product.id_producto && item.modeLabel === modeLabel;
+      return item.productId === product.id_producto && item.mode === mode;
     })[0];
 
     if (existing) {
@@ -453,8 +530,7 @@
         nombre: product.nombre_producto,
         sku: product.sku_producto,
         foto: photoUrl(product),
-        modeLabel: modeLabel,
-        unitPrice: unitPrice,
+        mode: mode,
         qty: qty,
       });
     }
@@ -476,9 +552,31 @@
     renderCart();
   }
 
+  function changeCartMode(index, mode) {
+    var item = state.cart[index];
+    if (!item) return;
+    item.mode = mode;
+    saveCart();
+    renderCart();
+  }
+
+  function cartLineInfo(item) {
+    var product = state.byId[item.productId];
+    if (!product) {
+      return { label: "Cargando precio...", unitPrice: 0, scheduleTxt: null, loaded: false };
+    }
+    var resolved = resolvePayment(product, item.mode);
+    return {
+      label: resolved.label,
+      unitPrice: resolved.unitPrice,
+      scheduleTxt: scheduleText(resolved.freqLabel),
+      loaded: true,
+    };
+  }
+
   function cartTotal() {
     return state.cart.reduce(function (sum, item) {
-      return sum + item.unitPrice * item.qty;
+      return sum + cartLineInfo(item).unitPrice * item.qty;
     }, 0);
   }
 
@@ -494,6 +592,19 @@
     } else {
       els.cartItems.innerHTML = state.cart
         .map(function (item, index) {
+          var info = cartLineInfo(item);
+          var product = state.byId[item.productId];
+          var selectHtml = product
+            ? '<select class="cart-item-select" data-index="' +
+              index +
+              '">' +
+              payModeOptionsHtml(product, item.mode) +
+              "</select>"
+            : "";
+          var scheduleHtml = info.scheduleTxt
+            ? '<p class="cart-item-schedule">' + escapeHtml(info.scheduleTxt) + "</p>"
+            : "";
+
           return (
             '<div class="cart-item">' +
             '<img src="' +
@@ -505,9 +616,8 @@
             '<p class="cart-item-name">' +
             escapeHtml(item.nombre) +
             "</p>" +
-            '<p class="cart-item-mode">' +
-            escapeHtml(item.modeLabel) +
-            "</p>" +
+            (selectHtml || '<p class="cart-item-mode">' + escapeHtml(info.label) + "</p>") +
+            scheduleHtml +
             '<div class="cart-item-qty">' +
             '<button type="button" data-action="dec" data-index="' +
             index +
@@ -524,7 +634,7 @@
             "</div>" +
             "</div>" +
             '<div class="cart-item-subtotal">' +
-            money(item.unitPrice * item.qty) +
+            money(info.unitPrice * item.qty) +
             "</div>" +
             "</div>"
           );
@@ -534,6 +644,7 @@
 
     els.cartTotal.textContent = money(cartTotal());
     els.cartCheckout.disabled = state.cart.length === 0;
+    els.cartPdf.disabled = state.cart.length === 0;
   }
 
   function openCart() {
@@ -553,6 +664,7 @@
   function buildWhatsappMessage() {
     var lines = ["Hola! Quiero hacer este pedido:", ""];
     state.cart.forEach(function (item, i) {
+      var info = cartLineInfo(item);
       lines.push(
         (i + 1) +
           ") " +
@@ -562,14 +674,72 @@
           ") - Cant: " +
           item.qty +
           " - " +
-          item.modeLabel +
+          info.label +
           " - Subtotal: " +
-          money(item.unitPrice * item.qty)
+          money(info.unitPrice * item.qty)
       );
+      if (info.scheduleTxt) lines.push("   " + info.scheduleTxt);
     });
     lines.push("");
     lines.push("Total: " + money(cartTotal()));
     return lines.join("\n");
+  }
+
+  // genera un PDF real vía el diálogo de impresión del navegador (no hay
+  // forma de adjuntar un archivo automáticamente en un link de wa.me,
+  // así que el cliente lo descarga acá y lo adjunta a mano en WhatsApp)
+  function downloadOrderPdf() {
+    if (state.cart.length === 0) return;
+    var win = window.open("", "_blank");
+    if (!win) {
+      alert("Habilitá las ventanas emergentes del navegador para generar el PDF.");
+      return;
+    }
+
+    var rowsHtml = state.cart
+      .map(function (item, i) {
+        var info = cartLineInfo(item);
+        return (
+          "<tr>" +
+          "<td>" + (i + 1) + "</td>" +
+          "<td>" + escapeHtml(item.nombre) + "<br><small>SKU: " + escapeHtml(item.sku || "-") + "</small></td>" +
+          "<td>" + escapeHtml(info.label) + (info.scheduleTxt ? "<br><small>" + escapeHtml(info.scheduleTxt) + "</small>" : "") + "</td>" +
+          "<td>" + item.qty + "</td>" +
+          "<td>" + money(info.unitPrice * item.qty) + "</td>" +
+          "</tr>"
+        );
+      })
+      .join("");
+
+    var today = new Date().toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" });
+
+    var html =
+      "<!doctype html><html><head><meta charset='utf-8'><title>Pedido PlanHogar</title><style>" +
+      "body{font-family:Arial,Helvetica,sans-serif;color:#1c2230;padding:32px;}" +
+      "h1{color:#1a5fb4;margin-bottom:0;}" +
+      "p.date{color:#6b7280;margin-top:4px;}" +
+      "table{width:100%;border-collapse:collapse;margin-top:20px;}" +
+      "th,td{border:1px solid #e3e5ea;padding:8px;text-align:left;font-size:0.85rem;vertical-align:top;}" +
+      "th{background:#eef4fc;}" +
+      "small{color:#6b7280;}" +
+      ".total{margin-top:16px;text-align:right;font-size:1.2rem;font-weight:bold;}" +
+      "@media print{body{padding:0;}}" +
+      "</style></head><body>" +
+      "<h1>PlanHogar</h1>" +
+      "<p class='date'>Pedido del " + today + "</p>" +
+      "<table><thead><tr><th>#</th><th>Producto</th><th>Forma de pago</th><th>Cant.</th><th>Subtotal</th></tr></thead>" +
+      "<tbody>" + rowsHtml + "</tbody></table>" +
+      "<p class='total'>Total: " + money(cartTotal()) + "</p>" +
+      "</body></html>";
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+
+    setTimeout(function () {
+      win.focus();
+      win.print();
+    }, 300);
   }
 
   // ---------- eventos ----------
@@ -591,7 +761,7 @@
     }
     if (addBtn) {
       var p2 = state.byId[addBtn.getAttribute("data-id")];
-      if (p2) addToCart(p2, "Contado", Number(p2.precio_contado), 1);
+      if (p2) addToCart(p2, "contado", 1);
       return;
     }
   });
@@ -614,6 +784,7 @@
     var url = "https://wa.me/" + WHATSAPP_NUMBER + "?text=" + encodeURIComponent(msg);
     window.open(url, "_blank", "noopener");
   });
+  els.cartPdf.addEventListener("click", downloadOrderPdf);
   els.cartItems.addEventListener("click", function (evt) {
     var btn = evt.target.closest("button[data-action]");
     if (!btn) return;
@@ -622,6 +793,12 @@
     if (action === "inc") changeCartQty(index, 1);
     if (action === "dec") changeCartQty(index, -1);
     if (action === "remove") removeFromCart(index);
+  });
+  els.cartItems.addEventListener("change", function (evt) {
+    var select = evt.target.closest(".cart-item-select");
+    if (!select) return;
+    var index = parseInt(select.getAttribute("data-index"), 10);
+    changeCartMode(index, select.value);
   });
 
   document.addEventListener("keydown", function (evt) {
@@ -653,6 +830,7 @@
       });
       populateFilters(state.all);
       applyFilters();
+      renderCart();
     })
     .catch(function (err) {
       console.error(err);
