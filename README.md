@@ -1,0 +1,104 @@
+# PlanHogar — Catálogo online
+
+Catálogo de productos para [planhogar.com.ar](https://planhogar.com.ar/), con filtros, carrito y pedido por WhatsApp. Sitio 100% estático: HTML + CSS + JS sin frameworks ni build (no hay `npm install`, no hay servidor propio — se abre directo o se sube a cualquier hosting estático).
+
+## Archivos
+
+```
+index.html   estructura de la página (header, filtros, grilla, modales, carrito)
+styles.css   estilos (una sola paleta de color vía variables CSS)
+app.js       toda la lógica: fetch de productos, filtros, carrito, PDF, WhatsApp
+logo.png     logo extraído de Logo_Plan_Hogar_plantillas.pdf
+```
+
+No hay `package.json` ni dependencias — son 3 archivos + el logo, se sirven tal cual.
+
+## Cómo probarlo local
+
+Cualquier servidor estático sirve. Por ejemplo:
+
+```bash
+cd planhogar
+python3 -m http.server 8080
+# abrir http://localhost:8080
+```
+
+También funciona abriendo `index.html` directo con doble clic (el catálogo llama a la API externa, no depende de un backend propio).
+
+## De dónde salen los datos
+
+Todo el catálogo sale de una sola llamada a:
+
+```
+https://api.planhogar.com.ar/index.php?route=prod&limit=5000
+```
+
+(`app.js`, constante `API_URL`). El `limit=5000` trae todo el catálogo de una vez (~2600 productos a la fecha) porque la API no pagina de forma incremental utilizable desde el frontend; se filtra/pagina todo en el navegador.
+
+Las fotos salen de `https://api.planhogar.com.ar/uploads/` + el campo `foto_producto` (constante `IMG_BASE`). Si un producto no tiene foto, se usa un ícono de casa genérico (SVG inline, `PLACEHOLDER_IMG`).
+
+Campos de la API que se usan: `id_producto`, `sku_producto`, `nombre_producto`, `precio_contado`, `precio_plan_1/2/3`, `foto_producto`, `id_rubro`/`rubro`, `id_etiqueta`/`nombre_etiqueta`, `nombre_estado_producto` (se ocultan los productos en estado `"Inactivo"`).
+
+## Planes de financiación
+
+La API solo da 3 montos totales por producto (`precio_plan_1/2/3`). Todo lo demás (meses, frecuencias, cantidad de cuotas) es lógica del sitio, definida en `app.js`:
+
+```js
+PLAN_DEFS = [
+  precio_plan_1 -> "Plan 1", 4 meses
+  precio_plan_2 -> "Plan 2", 7 meses
+  precio_plan_3 -> "Plan 3", 10 meses
+  plan_casa     -> "Plan de la casa", 10 meses (mismo monto que Plan 3, solo cambia el nombre)
+]
+
+FRECUENCIAS = [
+  Mensual   → cuotas = meses × 1
+  Quincenal → cuotas = meses × 2
+  Semanal   → cuotas = meses × 4
+  Diario    → cuotas = meses × 25
+]
+```
+
+El monto de cada cuota es `precio_plan_X / cantidad_de_cuotas`, redondeado.
+
+**El plan de pago es único por carrito**, no por producto: se elige una sola vez desde "Elegir plan y fecha" y se aplica a todos los ítems (cada uno sigue cobrando según su propio `precio_plan_X`, pero con la misma frecuencia/fecha).
+
+## Fechas de cuotas
+
+La fecha de inicio la elige el cliente (no se asume "hoy"). A partir de esa fecha:
+
+- **Diario**: cobra de lunes a sábado (nunca domingo).
+- **Semanal / Quincenal**: repite siempre el mismo día de la semana.
+- **Mensual**: repite siempre el mismo día del mes (si ese día no existe en un mes dado, se usa el último día del mes).
+- **Regla general**: si una fecha calculada cae domingo, se corre al lunes siguiente. Para mensual esto se chequea mes a mes (un mismo día del mes puede caer domingo en un mes y no en otro).
+
+Funciones clave en `app.js`: `shiftSunday`, `scheduleTextFromDate` (texto descriptivo), `generateDueDates` (lista completa de fechas, una por cuota, usada en el PDF).
+
+## Carrito y checkout
+
+- El carrito persiste en `localStorage` (`ph_cart_v3`): ítems + plan elegido + fecha elegida.
+- **"Finalizar pedido por WhatsApp"**: arma un mensaje de texto con el detalle (producto, cantidad, forma de pago, subtotal, cronograma, total) y abre `https://wa.me/<numero>?text=...`. El número está hardcodeado en `WHATSAPP_NUMBER` (`app.js`).
+- **"Descargar PDF del pedido"**: abre el diálogo de impresión nativo del navegador sobre una página de resumen generada al vuelo. *Importante:* un link de WhatsApp (`wa.me`) no puede adjuntar archivos — no existe ese mecanismo en su esquema de URL. Por eso el PDF se genera para descargar y el cliente lo adjunta a mano en el chat; no hay forma de automatizar el adjunto sin pasar a la WhatsApp Business API (requiere backend propio).
+- El PDF incluye una planilla de seguimiento de cuotas (una fila por cuota, con fecha y monto precargados, y columnas en blanco para "Fecha pagado", "Pagado $" y "Firma") cuando el modo elegido no es contado.
+
+## Cosas para cambiar a mano si hace falta
+
+Todas están al principio de `app.js` o en `:root` de `styles.css`:
+
+| Qué | Dónde |
+|---|---|
+| Número de WhatsApp | `WHATSAPP_NUMBER` en `app.js` |
+| Endpoint de la API | `API_URL` en `app.js` |
+| Base de imágenes | `IMG_BASE` en `app.js` |
+| Meses/nombres de los planes | `PLAN_DEFS` en `app.js` |
+| Multiplicadores de frecuencia | `FRECUENCIAS` en `app.js` |
+| Colores del sitio | `:root` en `styles.css` (`--color-primary`, etc.) |
+| Cuántos productos se muestran por tanda | `PAGE_SIZE` en `app.js` |
+
+## Deploy
+
+Son archivos estáticos — se suben tal cual a cualquier hosting (el mismo que sirve planhogar.com.ar, Netlify, GitHub Pages, etc.). No requieren build ni variables de entorno. Requisito: que la API (`api.planhogar.com.ar`) siga respondiendo con CORS abierto (`Access-Control-Allow-Origin: *`), como está hoy.
+
+## Repo
+
+https://github.com/K-lebjolicoeur/Planhogarweb
