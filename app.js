@@ -5,15 +5,17 @@
   var IMG_BASE = "https://api.planhogar.com.ar/uploads/";
   var PAGE_SIZE = 30;
   var WHATSAPP_NUMBER = "5493513119444";
-  var CART_KEY = "ph_cart_v2";
+  var CART_KEY = "ph_cart_v3";
 
-  // meses base de cada plan (usados para derivar las otras frecuencias)
-  var PLAN_MESES = { precio_plan_1: 4, precio_plan_2: 7, precio_plan_3: 10 };
-  var PLAN_LABELS = {
-    precio_plan_1: "Plan 1",
-    precio_plan_2: "Plan 2",
-    precio_plan_3: "Plan 3",
-  };
+  // definición de los planes de financiación. "plan_casa" reutiliza el
+  // mismo campo/monto que Plan 3 (10 meses), solo aparece con otro nombre
+  // en el selector.
+  var PLAN_DEFS = [
+    { key: "precio_plan_1", field: "precio_plan_1", label: "Plan 1", meses: 4 },
+    { key: "precio_plan_2", field: "precio_plan_2", label: "Plan 2", meses: 7 },
+    { key: "precio_plan_3", field: "precio_plan_3", label: "Plan 3", meses: 10 },
+    { key: "plan_casa", field: "precio_plan_3", label: "Plan de la casa", meses: 10 },
+  ];
   // multiplicador de cuotas por frecuencia respecto a la cantidad de meses
   var FRECUENCIAS = [
     { key: "mensual", label: "Mensual", mult: 1 },
@@ -52,10 +54,20 @@
     modal: document.getElementById("product-modal"),
     modalBody: document.getElementById("modal-body"),
     modalClose: document.getElementById("modal-close"),
+    planModal: document.getElementById("plan-modal"),
+    planModalClose: document.getElementById("plan-modal-close"),
+    planModalApply: document.getElementById("plan-modal-apply"),
+    cartPayModeSelect: document.getElementById("cart-pay-mode"),
+    cartDateRow: document.getElementById("cart-date-row"),
+    cartStartDateInput: document.getElementById("cart-start-date"),
+    cartSchedulePreview: document.getElementById("cart-schedule-preview"),
     cartToggle: document.getElementById("cart-toggle"),
     cartCount: document.getElementById("cart-count"),
     cartDrawer: document.getElementById("cart-drawer"),
     cartClose: document.getElementById("cart-close"),
+    cartModeLabel: document.getElementById("cart-mode-label"),
+    cartScheduleLine: document.getElementById("cart-schedule-line"),
+    cartChoosePlanBtn: document.getElementById("cart-choose-plan"),
     cartItems: document.getElementById("cart-items"),
     cartTotal: document.getElementById("cart-total"),
     cartCheckout: document.getElementById("cart-checkout"),
@@ -68,7 +80,9 @@
     byId: {},
     filtered: [],
     rendered: 0,
-    cart: [],
+    cart: [], // [{productId, nombre, sku, foto, qty}]
+    cartMode: "contado", // "contado" o "planKey|FreqLabel", aplica a TODO el carrito
+    startDate: null, // "YYYY-MM-DD" elegida por el usuario, o null
   };
 
   document.getElementById("year").textContent = new Date().getFullYear();
@@ -104,6 +118,19 @@
         }[c] || c
       );
     });
+  }
+
+  function todayISO() {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
+  function parseISODate(iso) {
+    var parts = iso.split("-");
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
   }
 
   // ---------- filtros ----------
@@ -252,12 +279,11 @@
 
   function planBreakdown(product) {
     var plans = [];
-    ["precio_plan_1", "precio_plan_2", "precio_plan_3"].forEach(function (key) {
-      var total = Number(product[key]);
+    PLAN_DEFS.forEach(function (def) {
+      var total = Number(product[def.field]);
       if (!total) return;
-      var meses = PLAN_MESES[key];
       var rows = FRECUENCIAS.map(function (f) {
-        var cuotas = meses * f.mult;
+        var cuotas = def.meses * f.mult;
         return {
           freqLabel: f.label,
           cuotas: cuotas,
@@ -265,8 +291,8 @@
         };
       });
       plans.push({
-        key: key,
-        label: PLAN_LABELS[key] + " (" + meses + " meses)",
+        key: def.key,
+        label: def.label + " (" + def.meses + " meses)",
         total: total,
         rows: rows,
       });
@@ -274,7 +300,7 @@
     return plans;
   }
 
-  // resuelve un "mode" ("contado" o "precio_plan_X|FreqLabel") contra el
+  // resuelve un "mode" ("contado" o "planKey|FreqLabel") contra el
   // producto y devuelve la etiqueta a mostrar + el precio unitario (total
   // a financiar para ese plan, o el precio de contado)
   function resolvePayment(product, mode) {
@@ -303,6 +329,8 @@
     };
   }
 
+  // opciones de forma de pago con precios, para el desglose informativo
+  // de un producto puntual (modal "Ver planes")
   function payModeOptionsHtml(product, selectedMode) {
     var plans = planBreakdown(product);
     var selected = selectedMode || "contado";
@@ -335,17 +363,46 @@
     return html;
   }
 
-  // ---------- calendario de cuotas ----------
-  // regla: si la fecha calculada cae domingo, se corre al lunes siguiente
+  // opciones de forma de pago genéricas (sin $, aplica a todo el carrito
+  // que puede tener productos de distinto precio) para el selector del
+  // plan-modal
+  function cartModeOptionsHtml(selectedMode) {
+    var selected = selectedMode || "contado";
+    var html =
+      '<option value="contado"' + (selected === "contado" ? " selected" : "") + ">Contado (pago único)</option>";
 
-  function addDays(date, n) {
-    var d = new Date(date);
-    d.setDate(d.getDate() + n);
-    return d;
+    PLAN_DEFS.forEach(function (def) {
+      html += '<optgroup label="' + escapeHtml(def.label) + " (" + def.meses + " meses)\">";
+      FRECUENCIAS.forEach(function (f) {
+        var cuotas = def.meses * f.mult;
+        var val = def.key + "|" + f.label;
+        html +=
+          '<option value="' +
+          val +
+          '"' +
+          (selected === val ? " selected" : "") +
+          ">" +
+          f.label +
+          " (" +
+          cuotas +
+          " cuotas)</option>";
+      });
+      html += "</optgroup>";
+    });
+    return html;
   }
 
+  // ---------- calendario de cuotas ----------
+  // la fecha de inicio la elige el usuario; si cae domingo se corre al
+  // lunes siguiente. a partir de ahí: diario cobra de lunes a sábado,
+  // semanal/quincenal repiten el mismo día de semana, mensual repite el
+  // mismo día del mes.
+
   function shiftSunday(date) {
-    return date.getDay() === 0 ? addDays(date, 1) : date;
+    if (date.getDay() !== 0) return date;
+    var d = new Date(date);
+    d.setDate(d.getDate() + 1);
+    return d;
   }
 
   function formatDate(date) {
@@ -356,36 +413,53 @@
     return date.toLocaleDateString("es-AR", { weekday: "long" });
   }
 
-  function scheduleText(freqLabel) {
-    if (!freqLabel) return null;
-    var today = new Date();
-    today.setHours(0, 0, 0, 0);
+  function scheduleTextFromDate(freqLabel, chosenDate) {
+    if (!freqLabel || !chosenDate) return null;
+    var first = shiftSunday(chosenDate);
 
     if (freqLabel === "Diario") {
-      var first = shiftSunday(addDays(today, 1));
       return "Cobro de lunes a sábado. Primera cuota: " + formatDate(first) + ".";
     }
     if (freqLabel === "Semanal") {
-      var firstW = shiftSunday(addDays(today, 7));
-      return "Todas las semanas, los " + weekdayName(firstW) + ". Primera cuota: " + formatDate(firstW) + ".";
+      return "Todas las semanas, los " + weekdayName(first) + ". Primera cuota: " + formatDate(first) + ".";
     }
     if (freqLabel === "Quincenal") {
-      var firstQ = shiftSunday(addDays(today, 14));
-      return "Cada 2 semanas, los " + weekdayName(firstQ) + ". Primera cuota: " + formatDate(firstQ) + ".";
+      return "Cada 2 semanas, los " + weekdayName(first) + ". Primera cuota: " + formatDate(first) + ".";
     }
     if (freqLabel === "Mensual") {
-      var day = today.getDate();
-      var y = today.getFullYear();
-      var m = today.getMonth() + 1;
-      var lastDayNextMonth = new Date(y, m + 1, 0).getDate();
-      var useDay = Math.min(day, lastDayNextMonth);
-      var firstM = shiftSunday(new Date(y, m, useDay));
-      return "El día " + day + " de cada mes. Primera cuota: " + formatDate(firstM) + ".";
+      return "El día " + first.getDate() + " de cada mes. Primera cuota: " + formatDate(first) + ".";
     }
     return null;
   }
 
-  // ---------- modal de producto ----------
+  function currentFreqLabel() {
+    if (state.cartMode === "contado") return null;
+    return state.cartMode.split("|")[1];
+  }
+
+  function currentScheduleText() {
+    var freqLabel = currentFreqLabel();
+    if (!freqLabel) return null;
+    if (!state.startDate) return null;
+    return scheduleTextFromDate(freqLabel, parseISODate(state.startDate));
+  }
+
+  function genericModeLabel(mode) {
+    if (!mode || mode === "contado") return "Contado";
+    var parts = mode.split("|");
+    var def = PLAN_DEFS.filter(function (d) {
+      return d.key === parts[0];
+    })[0];
+    if (!def) return "Contado";
+    var freqLabel = parts[1];
+    var freq = FRECUENCIAS.filter(function (f) {
+      return f.label === freqLabel;
+    })[0];
+    var cuotas = freq ? def.meses * freq.mult : "";
+    return def.label + " - " + freqLabel + (cuotas ? " (" + cuotas + " cuotas)" : "");
+  }
+
+  // ---------- modal de producto (informativo) ----------
 
   function openModal(product) {
     var plans = planBreakdown(product);
@@ -437,11 +511,6 @@
       planBlocks +
       "</div>" +
       '<div class="modal-buy">' +
-      '<label for="pay-mode">Forma de pago a agregar al carrito</label>' +
-      '<select id="pay-mode">' +
-      payModeOptionsHtml(product, "contado") +
-      "</select>" +
-      '<p id="pay-schedule" class="pay-schedule"></p>' +
       '<div class="qty-row">' +
       '<label for="qty-input">Cantidad</label>' +
       '<div class="qty-stepper">' +
@@ -451,19 +520,8 @@
       "</div>" +
       "</div>" +
       '<button type="button" id="modal-add-cart" class="btn-load-more">Agregar al carrito</button>' +
+      '<p class="modal-hint">La forma de pago (contado / plan) se elige una sola vez para todo el carrito, desde el botón "Elegir plan y fecha".</p>' +
       "</div>";
-
-    var payModeSelect = document.getElementById("pay-mode");
-    var scheduleEl = document.getElementById("pay-schedule");
-
-    function updateSchedulePreview() {
-      var resolved = resolvePayment(product, payModeSelect.value);
-      var text = scheduleText(resolved.freqLabel);
-      scheduleEl.textContent = text || "";
-      scheduleEl.hidden = !text;
-    }
-    payModeSelect.addEventListener("change", updateSchedulePreview);
-    updateSchedulePreview();
 
     document.getElementById("qty-minus").addEventListener("click", function () {
       var input = document.getElementById("qty-input");
@@ -475,7 +533,7 @@
     });
     document.getElementById("modal-add-cart").addEventListener("click", function () {
       var qty = Math.max(1, parseInt(document.getElementById("qty-input").value, 10) || 1);
-      addToCart(product, payModeSelect.value, qty);
+      addToCart(product, qty);
       closeModal();
       openCart();
     });
@@ -487,22 +545,80 @@
 
   function closeModal() {
     els.modal.hidden = true;
-    if (els.cartDrawer.hidden) {
+    if (els.cartDrawer.hidden && els.planModal.hidden) {
       els.overlay.hidden = true;
       document.body.classList.remove("no-scroll");
     }
   }
 
+  // ---------- modal de plan de pago (carrito completo) ----------
+
+  function updatePlanModalPreview() {
+    var mode = els.cartPayModeSelect.value;
+    var isPlan = mode !== "contado";
+    els.cartDateRow.hidden = !isPlan;
+
+    if (!isPlan) {
+      els.cartSchedulePreview.hidden = true;
+      return;
+    }
+    var freqLabel = mode.split("|")[1];
+    var dateVal = els.cartStartDateInput.value;
+    var text = dateVal ? scheduleTextFromDate(freqLabel, parseISODate(dateVal)) : null;
+    els.cartSchedulePreview.textContent = text || "Elegí una fecha de inicio.";
+    els.cartSchedulePreview.hidden = false;
+  }
+
+  function openPlanModal() {
+    els.cartPayModeSelect.innerHTML = cartModeOptionsHtml(state.cartMode);
+    els.cartStartDateInput.min = todayISO();
+    els.cartStartDateInput.value = state.startDate || "";
+    updatePlanModalPreview();
+
+    els.overlay.hidden = false;
+    els.planModal.hidden = false;
+    document.body.classList.add("no-scroll");
+  }
+
+  function closePlanModal() {
+    els.planModal.hidden = true;
+    if (els.cartDrawer.hidden && els.modal.hidden) {
+      els.overlay.hidden = true;
+      document.body.classList.remove("no-scroll");
+    }
+  }
+
+  function applyPlanModal() {
+    var mode = els.cartPayModeSelect.value;
+    if (mode !== "contado" && !els.cartStartDateInput.value) {
+      els.cartSchedulePreview.textContent = "Elegí una fecha de inicio antes de aplicar.";
+      els.cartSchedulePreview.hidden = false;
+      return;
+    }
+    state.cartMode = mode;
+    state.startDate = mode === "contado" ? null : els.cartStartDateInput.value;
+    saveCart();
+    renderCart();
+    closePlanModal();
+    if (els.modal.hidden) openCart();
+  }
+
   // ---------- carrito ----------
-  // cada item guarda productId + mode ("contado" o "planKey|FreqLabel").
-  // nombre/sku/foto quedan cacheados para poder mostrar el carrito incluso
-  // si el catálogo todavía no terminó de cargar; precio y cronograma se
-  // recalculan siempre desde el producto vivo (state.byId) cuando está.
+  // cada item guarda solo productId + qty; el precio y el cronograma se
+  // recalculan siempre a partir del plan/fecha elegidos para TODO el
+  // carrito (state.cartMode / state.startDate), no por producto.
 
   function loadCart() {
     try {
       var raw = localStorage.getItem(CART_KEY);
-      state.cart = raw ? JSON.parse(raw) : [];
+      var parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && Array.isArray(parsed.items)) {
+        state.cart = parsed.items;
+        state.cartMode = parsed.mode || "contado";
+        state.startDate = parsed.startDate || null;
+      } else {
+        state.cart = [];
+      }
     } catch (e) {
       state.cart = [];
     }
@@ -510,16 +626,18 @@
 
   function saveCart() {
     try {
-      localStorage.setItem(CART_KEY, JSON.stringify(state.cart));
+      localStorage.setItem(
+        CART_KEY,
+        JSON.stringify({ items: state.cart, mode: state.cartMode, startDate: state.startDate })
+      );
     } catch (e) {
       /* almacenamiento no disponible */
     }
   }
 
-  function addToCart(product, mode, qty) {
-    mode = mode || "contado";
+  function addToCart(product, qty) {
     var existing = state.cart.filter(function (item) {
-      return item.productId === product.id_producto && item.mode === mode;
+      return item.productId === product.id_producto;
     })[0];
 
     if (existing) {
@@ -530,7 +648,6 @@
         nombre: product.nombre_producto,
         sku: product.sku_producto,
         foto: photoUrl(product),
-        mode: mode,
         qty: qty,
       });
     }
@@ -552,26 +669,13 @@
     renderCart();
   }
 
-  function changeCartMode(index, mode) {
-    var item = state.cart[index];
-    if (!item) return;
-    item.mode = mode;
-    saveCart();
-    renderCart();
-  }
-
   function cartLineInfo(item) {
     var product = state.byId[item.productId];
     if (!product) {
-      return { label: "Cargando precio...", unitPrice: 0, scheduleTxt: null, loaded: false };
+      return { label: "Cargando precio...", unitPrice: 0, loaded: false };
     }
-    var resolved = resolvePayment(product, item.mode);
-    return {
-      label: resolved.label,
-      unitPrice: resolved.unitPrice,
-      scheduleTxt: scheduleText(resolved.freqLabel),
-      loaded: true,
-    };
+    var resolved = resolvePayment(product, state.cartMode);
+    return { label: resolved.label, unitPrice: resolved.unitPrice, loaded: true };
   }
 
   function cartTotal() {
@@ -587,24 +691,26 @@
     els.cartCount.textContent = count;
     els.cartCount.hidden = count === 0;
 
+    els.cartModeLabel.textContent = genericModeLabel(state.cartMode);
+
+    var scheduleTxt = currentScheduleText();
+    var freqLabel = currentFreqLabel();
+    if (freqLabel && !state.startDate) {
+      els.cartScheduleLine.textContent = "Elegí una fecha de inicio para ver el cronograma de cuotas.";
+      els.cartScheduleLine.hidden = false;
+    } else if (scheduleTxt) {
+      els.cartScheduleLine.textContent = scheduleTxt;
+      els.cartScheduleLine.hidden = false;
+    } else {
+      els.cartScheduleLine.hidden = true;
+    }
+
     if (state.cart.length === 0) {
       els.cartItems.innerHTML = '<p class="cart-empty">Tu carrito está vacío.</p>';
     } else {
       els.cartItems.innerHTML = state.cart
         .map(function (item, index) {
           var info = cartLineInfo(item);
-          var product = state.byId[item.productId];
-          var selectHtml = product
-            ? '<select class="cart-item-select" data-index="' +
-              index +
-              '">' +
-              payModeOptionsHtml(product, item.mode) +
-              "</select>"
-            : "";
-          var scheduleHtml = info.scheduleTxt
-            ? '<p class="cart-item-schedule">' + escapeHtml(info.scheduleTxt) + "</p>"
-            : "";
-
           return (
             '<div class="cart-item">' +
             '<img src="' +
@@ -616,8 +722,9 @@
             '<p class="cart-item-name">' +
             escapeHtml(item.nombre) +
             "</p>" +
-            (selectHtml || '<p class="cart-item-mode">' + escapeHtml(info.label) + "</p>") +
-            scheduleHtml +
+            '<p class="cart-item-mode">' +
+            escapeHtml(info.label) +
+            "</p>" +
             '<div class="cart-item-qty">' +
             '<button type="button" data-action="dec" data-index="' +
             index +
@@ -643,8 +750,9 @@
     }
 
     els.cartTotal.textContent = money(cartTotal());
-    els.cartCheckout.disabled = state.cart.length === 0;
-    els.cartPdf.disabled = state.cart.length === 0;
+    var needsDate = !!freqLabel && !state.startDate;
+    els.cartCheckout.disabled = state.cart.length === 0 || needsDate;
+    els.cartPdf.disabled = state.cart.length === 0 || needsDate;
   }
 
   function openCart() {
@@ -655,14 +763,17 @@
 
   function closeCart() {
     els.cartDrawer.hidden = true;
-    if (els.modal.hidden) {
+    if (els.modal.hidden && els.planModal.hidden) {
       els.overlay.hidden = true;
       document.body.classList.remove("no-scroll");
     }
   }
 
   function buildWhatsappMessage() {
-    var lines = ["Hola! Quiero hacer este pedido:", ""];
+    var lines = ["Hola! Quiero hacer este pedido:", "", "Forma de pago: " + genericModeLabel(state.cartMode)];
+    var scheduleTxt = currentScheduleText();
+    if (scheduleTxt) lines.push(scheduleTxt);
+    lines.push("");
     state.cart.forEach(function (item, i) {
       var info = cartLineInfo(item);
       lines.push(
@@ -673,12 +784,9 @@
           (item.sku || "-") +
           ") - Cant: " +
           item.qty +
-          " - " +
-          info.label +
           " - Subtotal: " +
           money(info.unitPrice * item.qty)
       );
-      if (info.scheduleTxt) lines.push("   " + info.scheduleTxt);
     });
     lines.push("");
     lines.push("Total: " + money(cartTotal()));
@@ -703,7 +811,6 @@
           "<tr>" +
           "<td>" + (i + 1) + "</td>" +
           "<td>" + escapeHtml(item.nombre) + "<br><small>SKU: " + escapeHtml(item.sku || "-") + "</small></td>" +
-          "<td>" + escapeHtml(info.label) + (info.scheduleTxt ? "<br><small>" + escapeHtml(info.scheduleTxt) + "</small>" : "") + "</td>" +
           "<td>" + item.qty + "</td>" +
           "<td>" + money(info.unitPrice * item.qty) + "</td>" +
           "</tr>"
@@ -712,12 +819,15 @@
       .join("");
 
     var today = new Date().toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" });
+    var scheduleTxt = currentScheduleText();
 
     var html =
       "<!doctype html><html><head><meta charset='utf-8'><title>Pedido PlanHogar</title><style>" +
       "body{font-family:Arial,Helvetica,sans-serif;color:#1c2230;padding:32px;}" +
       "h1{color:#1a5fb4;margin-bottom:0;}" +
       "p.date{color:#6b7280;margin-top:4px;}" +
+      "p.plan{margin-top:16px;font-weight:bold;}" +
+      "p.schedule{color:#1a5fb4;background:#eef4fc;padding:8px 12px;border-radius:6px;}" +
       "table{width:100%;border-collapse:collapse;margin-top:20px;}" +
       "th,td{border:1px solid #e3e5ea;padding:8px;text-align:left;font-size:0.85rem;vertical-align:top;}" +
       "th{background:#eef4fc;}" +
@@ -727,7 +837,9 @@
       "</style></head><body>" +
       "<h1>PlanHogar</h1>" +
       "<p class='date'>Pedido del " + today + "</p>" +
-      "<table><thead><tr><th>#</th><th>Producto</th><th>Forma de pago</th><th>Cant.</th><th>Subtotal</th></tr></thead>" +
+      "<p class='plan'>Forma de pago: " + escapeHtml(genericModeLabel(state.cartMode)) + "</p>" +
+      (scheduleTxt ? "<p class='schedule'>" + escapeHtml(scheduleTxt) + "</p>" : "") +
+      "<table><thead><tr><th>#</th><th>Producto</th><th>Cant.</th><th>Subtotal</th></tr></thead>" +
       "<tbody>" + rowsHtml + "</tbody></table>" +
       "<p class='total'>Total: " + money(cartTotal()) + "</p>" +
       "</body></html>";
@@ -761,7 +873,7 @@
     }
     if (addBtn) {
       var p2 = state.byId[addBtn.getAttribute("data-id")];
-      if (p2) addToCart(p2, "contado", 1);
+      if (p2) addToCart(p2, 1);
       return;
     }
   });
@@ -770,9 +882,15 @@
   els.overlay.addEventListener("click", function () {
     closeModal();
     closeCart();
+    closePlanModal();
   });
   els.cartToggle.addEventListener("click", openCart);
   els.cartClose.addEventListener("click", closeCart);
+  els.cartChoosePlanBtn.addEventListener("click", openPlanModal);
+  els.planModalClose.addEventListener("click", closePlanModal);
+  els.planModalApply.addEventListener("click", applyPlanModal);
+  els.cartPayModeSelect.addEventListener("change", updatePlanModalPreview);
+  els.cartStartDateInput.addEventListener("change", updatePlanModalPreview);
   els.cartClear.addEventListener("click", function () {
     state.cart = [];
     saveCart();
@@ -794,17 +912,12 @@
     if (action === "dec") changeCartQty(index, -1);
     if (action === "remove") removeFromCart(index);
   });
-  els.cartItems.addEventListener("change", function (evt) {
-    var select = evt.target.closest(".cart-item-select");
-    if (!select) return;
-    var index = parseInt(select.getAttribute("data-index"), 10);
-    changeCartMode(index, select.value);
-  });
 
   document.addEventListener("keydown", function (evt) {
     if (evt.key === "Escape") {
       closeModal();
       closeCart();
+      closePlanModal();
     }
   });
 

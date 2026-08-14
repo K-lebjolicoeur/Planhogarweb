@@ -73,10 +73,36 @@
   </div>
 </div>
 
+<div id="plan-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="plan-modal-title" hidden>
+  <div class="modal-content">
+    <button id="plan-modal-close" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+    <h2 id="plan-modal-title" class="modal-name">Elegí tu forma de pago</h2>
+    <p class="modal-sku">Se aplica a todos los productos del carrito.</p>
+    <div class="modal-buy">
+      <label for="cart-pay-mode">Forma de pago</label>
+      <select id="cart-pay-mode"></select>
+      <div id="cart-date-row" class="date-row" hidden>
+        <label for="cart-start-date">Fecha de inicio deseada</label>
+        <input type="date" id="cart-start-date">
+      </div>
+      <p id="cart-schedule-preview" class="pay-schedule" hidden></p>
+      <button id="plan-modal-apply" class="btn-load-more" type="button">Aplicar</button>
+    </div>
+  </div>
+</div>
+
 <aside id="cart-drawer" class="cart-drawer" role="dialog" aria-modal="true" aria-label="Carrito de compras" hidden>
   <div class="cart-drawer-header">
     <h2>Tu carrito</h2>
     <button id="cart-close" class="modal-close" type="button" aria-label="Cerrar carrito">&times;</button>
+  </div>
+  <div class="cart-plan-summary">
+    <div class="cart-plan-row">
+      <span>Forma de pago:</span>
+      <strong id="cart-mode-label">Contado</strong>
+    </div>
+    <p id="cart-schedule-line" class="cart-item-schedule" hidden></p>
+    <button id="cart-choose-plan" class="btn-choose-plan" type="button">Elegir plan y fecha</button>
   </div>
   <div id="cart-items" class="cart-items"></div>
   <div class="cart-footer">
