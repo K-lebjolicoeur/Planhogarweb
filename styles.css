@@ -3,8 +3,9 @@
   --color-surface: #ffffff;
   --color-text: #1c2230;
   --color-text-muted: #6b7280;
-  --color-primary: #1a5fb4;
-  --color-primary-dark: #114a92;
+  --color-primary: #f7941d;
+  --color-primary-dark: #c96f00;
+  --color-primary-tint: #fff3e0;
   --color-accent: #e8590c;
   --color-border: #e3e5ea;
   --radius: 10px;
@@ -285,7 +286,7 @@ body.no-scroll {
 }
 
 .btn-view-plans:hover {
-  background: #eef4fc;
+  background: var(--color-primary-tint);
 }
 
 .btn-add-quick {
@@ -418,7 +419,7 @@ body.no-scroll {
 }
 
 .modal-contado {
-  background: #eef4fc;
+  background: var(--color-primary-tint);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -503,7 +504,7 @@ body.no-scroll {
   margin: -4px 0 0;
   font-size: 0.78rem;
   color: var(--color-primary-dark);
-  background: #eef4fc;
+  background: var(--color-primary-tint);
   border-radius: 6px;
   padding: 6px 10px;
 }
@@ -607,7 +608,7 @@ body.no-scroll {
 }
 
 .btn-choose-plan:hover {
-  background: #eef4fc;
+  background: var(--color-primary-tint);
 }
 
 .cart-items {
@@ -660,7 +661,7 @@ body.no-scroll {
   margin: 0 0 6px;
   font-size: 0.7rem;
   color: var(--color-primary-dark);
-  background: #eef4fc;
+  background: var(--color-primary-tint);
   border-radius: 5px;
   padding: 4px 7px;
 }

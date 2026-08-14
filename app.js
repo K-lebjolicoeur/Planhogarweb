@@ -903,6 +903,7 @@
             "<td>" + money(montoPerCuota) + "</td>" +
             "<td></td>" +
             "<td></td>" +
+            "<td></td>" +
             "</tr>"
           );
         })
@@ -911,29 +912,33 @@
       paymentTableHtml =
         "<h2 class='pay-title'>Planilla de cuotas</h2>" +
         "<table class='pay-table'><thead><tr>" +
-        "<th>Nº</th><th>Fecha de pago</th><th>Monto</th><th>Pagado $</th><th>Firma</th>" +
+        "<th>Nº</th><th>Fecha de pago</th><th>Monto</th><th>Fecha pagado</th><th>Pagado $</th><th>Firma</th>" +
         "</tr></thead><tbody>" + paymentRowsHtml + "</tbody></table>";
     }
+
+    var logoUrl = new URL("logo.png", window.location.href).href;
 
     var html =
       "<!doctype html><html><head><meta charset='utf-8'><title>Pedido PlanHogar</title><style>" +
       "body{font-family:Arial,Helvetica,sans-serif;color:#1c2230;padding:32px;}" +
-      "h1{color:#1a5fb4;margin-bottom:0;}" +
+      ".brand-row{display:flex;align-items:center;gap:12px;}" +
+      ".brand-row img{height:48px;width:auto;}" +
+      "h1{color:#f7941d;margin:0;}" +
       "p.date{color:#6b7280;margin-top:4px;}" +
       "p.plan{margin-top:16px;font-weight:bold;}" +
-      "p.schedule{color:#1a5fb4;background:#eef4fc;padding:8px 12px;border-radius:6px;}" +
+      "p.schedule{color:#c96f00;background:#fff3e0;padding:8px 12px;border-radius:6px;}" +
       "table{width:100%;border-collapse:collapse;margin-top:20px;}" +
       "th,td{border:1px solid #e3e5ea;padding:8px;text-align:left;font-size:0.85rem;vertical-align:top;}" +
-      "th{background:#eef4fc;}" +
+      "th{background:#fff3e0;}" +
       "small{color:#6b7280;}" +
       ".total{margin-top:16px;text-align:right;font-size:1.2rem;font-weight:bold;}" +
-      "h2.pay-title{margin-top:36px;color:#1a5fb4;font-size:1.05rem;}" +
+      "h2.pay-title{margin-top:36px;color:#f7941d;font-size:1.05rem;}" +
       "table.pay-table th,table.pay-table td{border:1px solid #1c2230;padding:10px;}" +
-      "table.pay-table td:nth-child(4),table.pay-table td:nth-child(5){min-height:28px;}" +
+      "table.pay-table td:nth-child(4),table.pay-table td:nth-child(5),table.pay-table td:nth-child(6){min-height:28px;}" +
       "table.pay-table tr{page-break-inside:avoid;}" +
       "@media print{body{padding:0;}}" +
       "</style></head><body>" +
-      "<h1>PlanHogar</h1>" +
+      "<div class='brand-row'><img src='" + logoUrl + "' alt='PlanHogar'><h1>PlanHogar</h1></div>" +
       "<p class='date'>Pedido del " + today + "</p>" +
       "<p class='plan'>Forma de pago: " + escapeHtml(genericModeLabel(state.cartMode)) + "</p>" +
       (scheduleTxt ? "<p class='schedule'>" + escapeHtml(scheduleTxt) + "</p>" : "") +
