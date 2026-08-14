@@ -404,15 +404,58 @@
   // semanal/quincenal repiten el mismo día de semana, mensual repite el
   // mismo día del mes.
 
+  function addDays(date, n) {
+    var d = new Date(date);
+    d.setDate(d.getDate() + n);
+    return d;
+  }
+
   function shiftSunday(date) {
     if (date.getDay() !== 0) return date;
-    var d = new Date(date);
-    d.setDate(d.getDate() + 1);
-    return d;
+    return addDays(date, 1);
   }
 
   function formatDate(date) {
     return date.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" });
+  }
+
+  function formatDateLong(date) {
+    return date.toLocaleDateString("es-AR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
+
+  // fecha de vencimiento de cada cuota (1..count), a partir de la primera
+  // fecha ya corrida de domingo. semanal/quincenal preservan el día de
+  // semana sumando múltiplos de 7 (nunca vuelven a caer domingo); mensual
+  // repite el día del mes pero hay que chequear domingo mes a mes; diario
+  // cobra de lunes a sábado salteando domingos.
+  function generateDueDates(freqLabel, firstDate, count) {
+    var dates = [];
+    if (freqLabel === "Diario") {
+      var d = new Date(firstDate);
+      while (dates.length < count) {
+        if (d.getDay() !== 0) dates.push(new Date(d));
+        d = addDays(d, 1);
+      }
+    } else if (freqLabel === "Semanal") {
+      for (var i = 0; i < count; i++) dates.push(addDays(firstDate, i * 7));
+    } else if (freqLabel === "Quincenal") {
+      for (var j = 0; j < count; j++) dates.push(addDays(firstDate, j * 14));
+    } else if (freqLabel === "Mensual") {
+      var day = firstDate.getDate();
+      for (var k = 0; k < count; k++) {
+        var y = firstDate.getFullYear();
+        var m = firstDate.getMonth() + k;
+        var lastDayOfMonth = new Date(y, m + 1, 0).getDate();
+        var useDay = Math.min(day, lastDayOfMonth);
+        dates.push(shiftSunday(new Date(y, m, useDay)));
+      }
+    }
+    return dates;
   }
 
   function weekdayName(date) {
@@ -836,6 +879,41 @@
 
     var today = new Date().toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" });
     var scheduleTxt = currentScheduleText();
+    var freqLabel = currentFreqLabel();
+
+    // planilla de seguimiento de cuotas: una fila por cuota con fecha de
+    // vencimiento + monto total pre-cargados, y columnas en blanco para
+    // que el cobrador anote lo pagado y la firma
+    var paymentTableHtml = "";
+    if (freqLabel && state.startDate && state.cart.length > 0) {
+      var firstItemInfo = cartLineInfo(state.cart[0]);
+      var cuotasCount = firstItemInfo.cuotas || 0;
+      var montoPerCuota = state.cart.reduce(function (sum, item) {
+        return sum + (cartLineInfo(item).cuotaValor || 0);
+      }, 0);
+      var firstDate = shiftSunday(parseISODate(state.startDate));
+      var dueDates = generateDueDates(freqLabel, firstDate, cuotasCount);
+
+      var paymentRowsHtml = dueDates
+        .map(function (d, idx) {
+          return (
+            "<tr>" +
+            "<td>" + (idx + 1) + "</td>" +
+            "<td>" + formatDateLong(d) + "</td>" +
+            "<td>" + money(montoPerCuota) + "</td>" +
+            "<td></td>" +
+            "<td></td>" +
+            "</tr>"
+          );
+        })
+        .join("");
+
+      paymentTableHtml =
+        "<h2 class='pay-title'>Planilla de cuotas</h2>" +
+        "<table class='pay-table'><thead><tr>" +
+        "<th>Nº</th><th>Fecha de pago</th><th>Monto</th><th>Pagado $</th><th>Firma</th>" +
+        "</tr></thead><tbody>" + paymentRowsHtml + "</tbody></table>";
+    }
 
     var html =
       "<!doctype html><html><head><meta charset='utf-8'><title>Pedido PlanHogar</title><style>" +
@@ -849,6 +927,10 @@
       "th{background:#eef4fc;}" +
       "small{color:#6b7280;}" +
       ".total{margin-top:16px;text-align:right;font-size:1.2rem;font-weight:bold;}" +
+      "h2.pay-title{margin-top:36px;color:#1a5fb4;font-size:1.05rem;}" +
+      "table.pay-table th,table.pay-table td{border:1px solid #1c2230;padding:10px;}" +
+      "table.pay-table td:nth-child(4),table.pay-table td:nth-child(5){min-height:28px;}" +
+      "table.pay-table tr{page-break-inside:avoid;}" +
       "@media print{body{padding:0;}}" +
       "</style></head><body>" +
       "<h1>PlanHogar</h1>" +
@@ -858,6 +940,7 @@
       "<table><thead><tr><th>#</th><th>Producto</th><th>Cant.</th><th>Cuota</th><th>Subtotal</th></tr></thead>" +
       "<tbody>" + rowsHtml + "</tbody></table>" +
       "<p class='total'>Total: " + money(cartTotal()) + "</p>" +
+      paymentTableHtml +
       "</body></html>";
 
     win.document.open();
