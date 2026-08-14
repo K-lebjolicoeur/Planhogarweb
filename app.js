@@ -389,11 +389,15 @@
 
     els.overlay.hidden = false;
     els.modal.hidden = false;
+    document.body.classList.add("no-scroll");
   }
 
   function closeModal() {
     els.modal.hidden = true;
-    if (els.cartDrawer.hidden) els.overlay.hidden = true;
+    if (els.cartDrawer.hidden) {
+      els.overlay.hidden = true;
+      document.body.classList.remove("no-scroll");
+    }
   }
 
   function addToCartFromMode(product, mode, qty) {
@@ -535,11 +539,15 @@
   function openCart() {
     els.overlay.hidden = false;
     els.cartDrawer.hidden = false;
+    document.body.classList.add("no-scroll");
   }
 
   function closeCart() {
     els.cartDrawer.hidden = true;
-    if (els.modal.hidden) els.overlay.hidden = true;
+    if (els.modal.hidden) {
+      els.overlay.hidden = true;
+      document.body.classList.remove("no-scroll");
+    }
   }
 
   function buildWhatsappMessage() {

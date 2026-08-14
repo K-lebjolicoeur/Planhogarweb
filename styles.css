@@ -21,6 +21,10 @@ body {
   color: var(--color-text);
 }
 
+body.no-scroll {
+  overflow: hidden;
+}
+
 .site-header {
   background: var(--color-primary);
   color: #fff;
@@ -64,15 +68,22 @@ body {
   margin-left: 4px;
 }
 
-.logo {
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: #fff;
-  text-decoration: none;
+.brand {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
-.logo span {
-  color: #ffd166;
+.logo {
+  display: inline-block;
+  text-decoration: none;
+  line-height: 0;
+}
+
+.logo img {
+  height: 48px;
+  width: auto;
+  display: block;
 }
 
 .tagline {
@@ -332,6 +343,12 @@ body {
   inset: 0;
   background: rgba(15, 20, 30, 0.55);
   z-index: 40;
+}
+
+.overlay[hidden],
+.modal[hidden],
+.cart-drawer[hidden] {
+  display: none;
 }
 
 /* ---------- modal producto ---------- */
@@ -673,8 +690,12 @@ body {
     justify-content: space-between;
   }
 
+  .logo img {
+    height: 34px;
+  }
+
   .tagline {
-    font-size: 0.82rem;
+    font-size: 0.78rem;
   }
 
   .grid {
