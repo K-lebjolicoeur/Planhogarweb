@@ -85,8 +85,6 @@
     startDate: null, // "YYYY-MM-DD" elegida por el usuario, o null
   };
 
-  document.getElementById("year").textContent = new Date().getFullYear();
-
   function normalize(str) {
     return (str || "")
       .toString()
