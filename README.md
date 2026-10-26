@@ -9,9 +9,10 @@ index.html   estructura de la página (header, filtros, grilla, modales, carrito
 styles.css   estilos (una sola paleta de color vía variables CSS)
 app.js       toda la lógica: fetch de productos, filtros, carrito, PDF, WhatsApp
 logo.png     logo extraído de Logo_Plan_Hogar_plantillas.pdf
+vendor/      jsPDF + AutoTable (generación del PDF del pedido)
 ```
 
-No hay `package.json` ni dependencias — son 3 archivos + el logo, se sirven tal cual.
+No hay `package.json` ni build. La única dependencia es jsPDF (+ AutoTable) para el PDF, copiada en `vendor/` y servida tal cual.
 
 ## Cómo probarlo local
 
@@ -78,7 +79,7 @@ Funciones clave en `app.js`: `shiftSunday`, `scheduleTextFromDate` (texto descri
 
 - El carrito persiste en `localStorage` (`ph_cart_v3`): ítems + plan elegido + fecha elegida.
 - **"Finalizar pedido por WhatsApp"**: arma un mensaje de texto con el detalle (producto, cantidad, forma de pago, subtotal, cronograma, total) y abre `https://wa.me/<numero>?text=...`. El número está hardcodeado en `WHATSAPP_NUMBER` (`app.js`).
-- **"Descargar PDF del pedido"**: abre el diálogo de impresión nativo del navegador sobre una página de resumen generada al vuelo. *Importante:* un link de WhatsApp (`wa.me`) no puede adjuntar archivos — no existe ese mecanismo en su esquema de URL. Por eso el PDF se genera para descargar y el cliente lo adjunta a mano en el chat; no hay forma de automatizar el adjunto sin pasar a la WhatsApp Business API (requiere backend propio).
+- **"Descargar PDF del pedido"**: genera un archivo `.pdf` real con [jsPDF](https://github.com/parallax/jsPDF) 2.5.1 + [jsPDF-AutoTable](https://github.com/simonbengtsson/jsPDF-AutoTable) 3.8.2 (copiados en `vendor/`, sin CDN; se cargan recién al tocar el botón) y lo descarga directo como `pedido-planhogar-<fecha>-<cliente>.pdf`. *Importante:* un link de WhatsApp (`wa.me`) no puede adjuntar archivos, así que el cliente adjunta el PDF a mano en el chat.
 - El PDF incluye una planilla de seguimiento de cuotas (una fila por cuota, con fecha y monto precargados, y columnas en blanco para "Fecha pagado", "Pagado $" y "Firma") cuando el modo elegido no es contado.
 
 ## Links compartibles y vendedores

@@ -1390,131 +1390,246 @@
     return lines.join("\n");
   }
 
-  // genera un PDF real vía el diálogo de impresión del navegador (no hay
-  // forma de adjuntar un archivo automáticamente en un link de wa.me,
-  // así que el cliente lo descarga acá y lo adjunta a mano en WhatsApp)
-  function downloadOrderPdf() {
-    if (state.cart.length === 0) return;
-    var win = window.open("", "_blank");
-    if (!win) {
-      alert("Habilitá las ventanas emergentes del navegador para generar el PDF.");
-      return;
+  // ---------- PDF del pedido ----------
+  // se genera un archivo .pdf real con jsPDF (vendor/, se carga recién al
+  // tocar el botón) y se descarga directo. Un link de wa.me no puede
+  // adjuntar archivos, así que el cliente lo adjunta a mano en WhatsApp.
+
+  var PDF_LIBS = ["vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js"];
+  var pdfLibsPromise = null;
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function () {
+        reject(new Error("No se pudo cargar " + src));
+      };
+      document.head.appendChild(s);
+    });
+  }
+
+  function loadPdfLibs() {
+    if (!pdfLibsPromise) {
+      // en orden: el plugin de tablas necesita jsPDF cargado
+      pdfLibsPromise = loadScript(PDF_LIBS[0])
+        .then(function () {
+          return loadScript(PDF_LIBS[1]);
+        })
+        .catch(function (err) {
+          pdfLibsPromise = null;
+          throw err;
+        });
+    }
+    return pdfLibsPromise;
+  }
+
+  // logo como data URL para incrustarlo; si falla (ej. abierto con
+  // file://) el PDF sale igual, sin logo
+  function loadLogoDataUrl() {
+    return fetch("logo.png")
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.blob();
+      })
+      .then(function (blob) {
+        return new Promise(function (resolve) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            resolve(reader.result);
+          };
+          reader.onerror = function () {
+            resolve(null);
+          };
+          reader.readAsDataURL(blob);
+        });
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  function pdfFileName() {
+    var name = normalize(state.cliente.nombre)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    return "pedido-planhogar-" + todayISO() + (name ? "-" + name : "") + ".pdf";
+  }
+
+  function buildOrderPdf(logo) {
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ unit: "mm", format: "a4" });
+    var ORANGE = [247, 148, 29];
+    var DARK = [28, 34, 48];
+    var MUTED = [107, 114, 128];
+    var TINT = [255, 243, 224];
+    var left = 14;
+    var right = doc.internal.pageSize.getWidth() - 14;
+    var bottom = doc.internal.pageSize.getHeight() - 15;
+    var y = 15;
+
+    function ensureSpace(h) {
+      if (y + h > bottom) {
+        doc.addPage();
+        y = 15;
+      }
     }
 
-    var rowsHtml = state.cart
-      .map(function (item, i) {
-        var info = cartLineInfo(item);
-        var cuotaTxt = info.cuotas
-          ? info.cuotas + " cuotas de " + money(info.cuotaValor) + " c/u"
-          : "Pago único";
-        return (
-          "<tr>" +
-          "<td>" + (i + 1) + "</td>" +
-          "<td>" + escapeHtml(item.nombre) + "<br><small>SKU: " + escapeHtml(item.sku || "-") + "</small></td>" +
-          "<td>" + item.qty + "</td>" +
-          "<td>" + cuotaTxt + "</td>" +
-          "<td>" + money(info.unitPrice * item.qty) + "</td>" +
-          "</tr>"
-        );
-      })
-      .join("");
+    function heading(text) {
+      ensureSpace(12);
+      y += 4;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor.apply(doc, ORANGE);
+      doc.text(text, left, y);
+      y += 6;
+    }
 
+    function labelValue(label, value) {
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor.apply(doc, DARK);
+      var labelText = label + ": ";
+      var labelW = doc.getTextWidth(labelText);
+      doc.setFont("helvetica", "normal");
+      var lines = doc.splitTextToSize(value, right - left - labelW);
+      ensureSpace(lines.length * 5);
+      doc.setFont("helvetica", "bold");
+      doc.text(labelText, left, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(lines, left + labelW, y);
+      y += lines.length * 5;
+    }
+
+    // encabezado
+    if (logo) doc.addImage(logo, "PNG", left, y - 5, 16, 16);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.setTextColor.apply(doc, ORANGE);
+    doc.text("PlanHogar", left + (logo ? 20 : 0), y + 4);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor.apply(doc, MUTED);
     var today = new Date().toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" });
+    doc.text("Pedido del " + today, left + (logo ? 20 : 0), y + 10);
+    y += 20;
+
     var vendedor = currentVendedor();
+    if (vendedor) labelValue("Vendedor", vendedorName(vendedor));
+
+    heading("Datos del cliente");
+    clientLines().forEach(function (line) {
+      var i = line.indexOf(": ");
+      var key = line.slice(0, i);
+      var val = line.slice(i + 2);
+      if (key === "Ubicación") {
+        ensureSpace(5);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor.apply(doc, DARK);
+        doc.text("Ubicación: ", left, y);
+        var w = doc.getTextWidth("Ubicación: ");
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(26, 115, 232);
+        doc.textWithLink("Ver en Google Maps", left + w, y, { url: val });
+        y += 5;
+      } else {
+        labelValue(key, val);
+      }
+    });
+
+    heading("Pedido");
+    labelValue("Forma de pago", genericModeLabel(state.cartMode));
     var scheduleTxt = currentScheduleText();
-    var freqLabel = currentFreqLabel();
+    if (scheduleTxt) {
+      doc.setFontSize(9);
+      var schedLines = doc.splitTextToSize(scheduleTxt, right - left - 6);
+      var boxH = schedLines.length * 4.5 + 4;
+      ensureSpace(boxH + 2);
+      doc.setFillColor.apply(doc, TINT);
+      doc.rect(left, y - 3, right - left, boxH, "F");
+      doc.setTextColor(201, 111, 0);
+      doc.text(schedLines, left + 3, y + 1.5);
+      y += boxH + 1;
+    }
+
+    doc.autoTable({
+      startY: y + 2,
+      margin: { left: left, right: 14 },
+      head: [["#", "Producto", "Cant.", "Cuota", "Subtotal"]],
+      body: state.cart.map(function (item, i) {
+        var info = cartLineInfo(item);
+        return [
+          String(i + 1),
+          item.nombre + "\nSKU: " + (item.sku || "-"),
+          String(item.qty),
+          info.cuotas ? info.cuotas + " cuotas de " + money(info.cuotaValor) + " c/u" : "Pago único",
+          money(info.unitPrice * item.qty),
+        ];
+      }),
+      styles: { fontSize: 9, textColor: DARK, lineColor: [227, 229, 234], lineWidth: 0.2, valign: "top" },
+      headStyles: { fillColor: TINT, textColor: DARK, fontStyle: "bold" },
+      columnStyles: { 0: { cellWidth: 8 }, 2: { cellWidth: 14, halign: "center" }, 4: { halign: "right" } },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+
+    ensureSpace(8);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor.apply(doc, DARK);
+    doc.text("Total: " + money(cartTotal()), right, y, { align: "right" });
+    y += 6;
 
     // planilla de seguimiento de cuotas: una fila por cuota con fecha de
     // vencimiento + monto total pre-cargados, y columnas en blanco para
     // que el cobrador anote lo pagado y la firma
-    var paymentTableHtml = "";
-    if (freqLabel && state.startDate && state.cart.length > 0) {
-      var firstItemInfo = cartLineInfo(state.cart[0]);
-      var cuotasCount = firstItemInfo.cuotas || 0;
+    var freqLabel = currentFreqLabel();
+    if (freqLabel && state.startDate) {
+      var cuotasCount = cartLineInfo(state.cart[0]).cuotas || 0;
       var montoPerCuota = state.cart.reduce(function (sum, item) {
         return sum + (cartLineInfo(item).cuotaValor || 0);
       }, 0);
-      var firstDate = shiftSunday(parseISODate(state.startDate));
-      var dueDates = generateDueDates(freqLabel, firstDate, cuotasCount);
+      var dueDates = generateDueDates(freqLabel, shiftSunday(parseISODate(state.startDate)), cuotasCount);
 
-      var paymentRowsHtml = dueDates
-        .map(function (d, idx) {
-          return (
-            "<tr>" +
-            "<td>" + (idx + 1) + "</td>" +
-            "<td>" + formatDateLong(d) + "</td>" +
-            "<td>" + money(montoPerCuota) + "</td>" +
-            "<td></td>" +
-            "<td></td>" +
-            "<td></td>" +
-            "</tr>"
-          );
-        })
-        .join("");
-
-      paymentTableHtml =
-        "<h2 class='pay-title'>Planilla de cuotas</h2>" +
-        "<table class='pay-table'><thead><tr>" +
-        "<th>Nº</th><th>Fecha de pago</th><th>Monto</th><th>Fecha pagado</th><th>Pagado $</th><th>Firma</th>" +
-        "</tr></thead><tbody>" + paymentRowsHtml + "</tbody></table>";
+      heading("Planilla de cuotas");
+      doc.autoTable({
+        startY: y,
+        margin: { left: left, right: 14 },
+        head: [["Nº", "Fecha de pago", "Monto", "Fecha pagado", "Pagado $", "Firma"]],
+        body: dueDates.map(function (d, idx) {
+          return [String(idx + 1), formatDateLong(d), money(montoPerCuota), "", "", ""];
+        }),
+        styles: { fontSize: 9, textColor: DARK, lineColor: DARK, lineWidth: 0.2, minCellHeight: 8, valign: "middle" },
+        headStyles: { fillColor: TINT, textColor: DARK, fontStyle: "bold" },
+        columnStyles: { 0: { cellWidth: 10 } },
+        rowPageBreak: "avoid",
+      });
     }
 
-    var logoUrl = new URL("logo.png", window.location.href).href;
+    return doc;
+  }
 
-    var html =
-      "<!doctype html><html><head><meta charset='utf-8'><title>Pedido PlanHogar</title><style>" +
-      "body{font-family:Arial,Helvetica,sans-serif;color:#1c2230;padding:32px;}" +
-      ".brand-row{display:flex;align-items:center;gap:12px;}" +
-      ".brand-row img{height:48px;width:auto;}" +
-      "h1{color:#f7941d;margin:0;}" +
-      "p.date{color:#6b7280;margin-top:4px;}" +
-      "p.plan{margin-top:16px;font-weight:bold;}" +
-      "p.schedule{color:#c96f00;background:#fff3e0;padding:8px 12px;border-radius:6px;}" +
-      "table{width:100%;border-collapse:collapse;margin-top:20px;}" +
-      "th,td{border:1px solid #e3e5ea;padding:8px;text-align:left;font-size:0.85rem;vertical-align:top;}" +
-      "th{background:#fff3e0;}" +
-      "small{color:#6b7280;}" +
-      ".total{margin-top:16px;text-align:right;font-size:1.2rem;font-weight:bold;}" +
-      "h2.pay-title{margin-top:36px;color:#f7941d;font-size:1.05rem;}" +
-      ".client h2.pay-title{margin-top:20px;}" +
-      ".client p{margin:4px 0;font-size:0.9rem;}" +
-      "table.pay-table th,table.pay-table td{border:1px solid #1c2230;padding:10px;}" +
-      "table.pay-table td:nth-child(4),table.pay-table td:nth-child(5),table.pay-table td:nth-child(6){min-height:28px;}" +
-      "table.pay-table tr{page-break-inside:avoid;}" +
-      "@media print{body{padding:0;}}" +
-      "</style></head><body>" +
-      "<div class='brand-row'><img src='" + logoUrl + "' alt='PlanHogar'><h1>PlanHogar</h1></div>" +
-      "<p class='date'>Pedido del " + today + "</p>" +
-      (vendedor ? "<p class='plan'>Vendedor: " + escapeHtml(vendedorName(vendedor)) + "</p>" : "") +
-      "<div class='client'><h2 class='pay-title'>Datos del cliente</h2>" +
-      clientLines()
-        .map(function (line) {
-          var i = line.indexOf(": ");
-          var key = line.slice(0, i);
-          var val = line.slice(i + 2);
-          var valHtml = key === "Ubicación"
-            ? "<a href='" + escapeHtml(val) + "'>Ver en Google Maps</a>"
-            : escapeHtml(val);
-          return "<p><strong>" + escapeHtml(key) + ":</strong> " + valHtml + "</p>";
-        })
-        .join("") +
-      "</div>" +
-      "<p class='plan'>Forma de pago: " + escapeHtml(genericModeLabel(state.cartMode)) + "</p>" +
-      (scheduleTxt ? "<p class='schedule'>" + escapeHtml(scheduleTxt) + "</p>" : "") +
-      "<table><thead><tr><th>#</th><th>Producto</th><th>Cant.</th><th>Cuota</th><th>Subtotal</th></tr></thead>" +
-      "<tbody>" + rowsHtml + "</tbody></table>" +
-      "<p class='total'>Total: " + money(cartTotal()) + "</p>" +
-      paymentTableHtml +
-      "</body></html>";
+  function downloadOrderPdf() {
+    if (state.cart.length === 0) return;
+    var btn = els.cartPdf;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Generando PDF...";
 
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
-
-    setTimeout(function () {
-      win.focus();
-      win.print();
-    }, 300);
+    Promise.all([loadPdfLibs(), loadLogoDataUrl()])
+      .then(function (res) {
+        buildOrderPdf(res[1]).save(pdfFileName());
+      })
+      .catch(function (err) {
+        console.error(err);
+        alert("No se pudo generar el PDF. Revisá la conexión y probá de nuevo.");
+      })
+      .then(function () {
+        btn.textContent = label;
+        renderCart();
+      });
   }
 
   // ---------- eventos ----------
