@@ -81,6 +81,15 @@ Funciones clave en `app.js`: `shiftSunday`, `scheduleTextFromDate` (texto descri
 - **"Descargar PDF del pedido"**: abre el diálogo de impresión nativo del navegador sobre una página de resumen generada al vuelo. *Importante:* un link de WhatsApp (`wa.me`) no puede adjuntar archivos — no existe ese mecanismo en su esquema de URL. Por eso el PDF se genera para descargar y el cliente lo adjunta a mano en el chat; no hay forma de automatizar el adjunto sin pasar a la WhatsApp Business API (requiere backend propio).
 - El PDF incluye una planilla de seguimiento de cuotas (una fila por cuota, con fecha y monto precargados, y columnas en blanco para "Fecha pagado", "Pagado $" y "Firma") cuando el modo elegido no es contado.
 
+## Links compartibles y vendedores
+
+- **Link de producto**: botón "Compartir producto" en el detalle. Genera `?p=<código>` (ej. `?p=2w7g4`); al abrirlo se muestra ese producto.
+- **Link de carrito**: botón "Compartir link del carrito". Genera `?c=<token>` (JSON en base64url con ítems, plan, fecha y vendedor); al abrirlo se carga ese carrito (si el visitante ya tenía uno, se le pregunta si lo reemplaza). Después de aplicarlo se limpia la URL.
+- Los ids van ofuscados (`encodeId`/`decodeId` en `app.js`) para que el link no muestre ids correlativos. No es encriptación: la lógica está en el JS público y los ids igual salen en la API. Si se cambian `ID_MULT`/`ID_OFFSET`/`ID_XOR`, los links ya compartidos dejan de funcionar.
+- En el celular se usa el menú nativo de compartir; en la compu se copia el link al portapapeles.
+- **Vendedor**: selector en el carrito, cargado de `https://api.planhogar.com.ar/index.php?route=vendedores` (`VENDEDORES_URL`; empleados activos con rol Vendedor o Cobrador, `id_rol_empleado` 5 y 6; el endpoint devuelve solo nombre y celular). Si esa ruta no responde, se usa `route=emp` (`EMPLEADOS_URL`) filtrando en el navegador. El pedido por WhatsApp va al celular del vendedor elegido; sin vendedor va a `WHATSAPP_NUMBER`. Si el endpoint falla, el selector se oculta y todo sigue andando con el número general.
+- El mensaje de WhatsApp puede incluir el link del carrito (casilla "Incluir link del carrito en el mensaje").
+
 ## Cosas para cambiar a mano si hace falta
 
 Todas están al principio de `app.js` o en `:root` de `styles.css`:

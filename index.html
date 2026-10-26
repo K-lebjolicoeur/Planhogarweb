@@ -62,7 +62,7 @@
 
 <footer class="site-footer">
   <p>Diseñado por <a href="https://persevera.com.ar/" target="_blank" rel="noopener">Persevera</a></p>
-  <p>&copy; 2026 PlanHogar v1.0.0</p>
+  <p>&copy; 2026 PlanHogar v1.1.0</p>
 </footer>
 
 <div id="overlay" class="overlay" hidden></div>
@@ -104,6 +104,11 @@
     </div>
     <p id="cart-schedule-line" class="cart-item-schedule" hidden></p>
     <button id="cart-choose-plan" class="btn-choose-plan" type="button">Elegir plan y fecha</button>
+    <div id="cart-seller-row" class="cart-seller-row" hidden>
+      <label for="cart-seller">Vendedor</label>
+      <select id="cart-seller"></select>
+    </div>
+    <p id="cart-seller-hint" class="cart-seller-hint" role="alert" hidden></p>
   </div>
   <div id="cart-items" class="cart-items"></div>
   <div class="cart-footer">
@@ -111,8 +116,14 @@
       <span>Total</span>
       <strong id="cart-total">$0</strong>
     </div>
+    <label class="cart-include-link">
+      <input type="checkbox" id="cart-include-link" checked>
+      Incluir link del carrito en el mensaje
+    </label>
     <button id="cart-checkout" class="btn-whatsapp" type="button" disabled>Finalizar pedido por WhatsApp</button>
     <button id="cart-pdf" class="btn-pdf" type="button" disabled>Descargar PDF del pedido</button>
+    <button id="cart-share" class="btn-pdf" type="button" disabled>Compartir link del carrito</button>
+    <p id="cart-share-status" class="share-status" role="status" hidden></p>
     <button id="cart-clear" class="btn-clear-cart" type="button">Vaciar carrito</button>
   </div>
 </aside>

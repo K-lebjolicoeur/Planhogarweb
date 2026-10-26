@@ -4,7 +4,11 @@
   var API_URL = "https://api.planhogar.com.ar/index.php?route=prod&limit=5000";
   var IMG_BASE = "https://api.planhogar.com.ar/uploads/";
   var PAGE_SIZE = 30;
-  var WHATSAPP_NUMBER = "5493513119444";
+  var VENDEDORES_URL = "https://api.planhogar.com.ar/index.php?route=vendedores";
+  // respaldo mientras route=vendedores no esté subido en la API
+  var EMPLEADOS_URL = "https://api.planhogar.com.ar/index.php?route=emp&limit=500";
+  var VENDEDOR_ROLES = [5, 6]; // id_rol_empleado: Vendedor, Cobrador
+  var WHATSAPP_NUMBER = "5493513119444"; // se usa si no se elige vendedor
   var CART_KEY = "ph_cart_v3";
 
   // definición de los planes de financiación. "plan_casa" reutiliza el
@@ -73,6 +77,12 @@
     cartCheckout: document.getElementById("cart-checkout"),
     cartPdf: document.getElementById("cart-pdf"),
     cartClear: document.getElementById("cart-clear"),
+    cartSellerRow: document.getElementById("cart-seller-row"),
+    cartSeller: document.getElementById("cart-seller"),
+    cartIncludeLink: document.getElementById("cart-include-link"),
+    cartShare: document.getElementById("cart-share"),
+    cartShareStatus: document.getElementById("cart-share-status"),
+    cartSellerHint: document.getElementById("cart-seller-hint"),
   };
 
   var state = {
@@ -83,6 +93,10 @@
     cart: [], // [{productId, nombre, sku, foto, qty}]
     cartMode: "contado", // "contado" o "planKey|FreqLabel", aplica a TODO el carrito
     startDate: null, // "YYYY-MM-DD" elegida por el usuario, o null
+    vendedores: [], // [{id_empleado, nombre_empleado, apellido_empleado, celular_empleado}]
+    vendedorId: null, // id_empleado elegido en el carrito, o null (número general)
+    vendedoresStatus: "loading", // "loading" | "ok" | "error"
+    includeLink: true, // agregar el link del carrito al mensaje de WhatsApp
   };
 
   function normalize(str) {
@@ -129,6 +143,309 @@
   function parseISODate(iso) {
     var parts = iso.split("-");
     return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+
+  // ---------- links compartibles ----------
+  // ?p=<código>   abre el detalle de ese producto
+  // ?c=<token>    carga ese carrito (ítems + plan + fecha + vendedor)
+  //
+  // los ids van ofuscados para que el link no muestre ids correlativos.
+  // NO es seguridad: es un sitio estático, cualquiera puede leer esta
+  // lógica, y los ids igual son públicos en la API.
+
+  var ID_MULT = 7919;
+  var ID_OFFSET = 104729;
+  var ID_XOR = 0x5a5a5a;
+
+  function encodeId(id) {
+    var n = Number(id);
+    if (!(n >= 0)) return "";
+    return ((n * ID_MULT + ID_OFFSET) ^ ID_XOR).toString(36);
+  }
+
+  // devuelve el id como string, o null si el código no es válido
+  function decodeId(code) {
+    if (!/^[0-9a-z]+$/.test(code || "")) return null;
+    var v = (parseInt(code, 36) ^ ID_XOR) - ID_OFFSET;
+    if (v < 0 || v % ID_MULT !== 0) return null;
+    return String(v / ID_MULT);
+  }
+
+  function toBase64Url(str) {
+    return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function fromBase64Url(str) {
+    var b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    return decodeURIComponent(escape(atob(b64)));
+  }
+
+  function baseUrl() {
+    return window.location.href.split(/[?#]/)[0];
+  }
+
+  function productLink(product) {
+    return baseUrl() + "?p=" + encodeId(product.id_producto);
+  }
+
+  function cartLink() {
+    var payload = {
+      i: state.cart.map(function (item) {
+        return [encodeId(item.productId), item.qty];
+      }),
+    };
+    if (state.cartMode !== "contado") payload.m = state.cartMode;
+    if (state.startDate) payload.f = state.startDate;
+    if (state.vendedorId) payload.v = encodeId(state.vendedorId);
+    return baseUrl() + "?c=" + toBase64Url(JSON.stringify(payload));
+  }
+
+  function parseCartToken(token) {
+    try {
+      var data = JSON.parse(fromBase64Url(token));
+      return data && Array.isArray(data.i) ? data : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function isValidMode(mode) {
+    if (mode === "contado") return true;
+    var parts = (mode || "").split("|");
+    var planOk = PLAN_DEFS.some(function (d) {
+      return d.key === parts[0];
+    });
+    var freqOk = FRECUENCIAS.some(function (f) {
+      return f.label === parts[1];
+    });
+    return planOk && freqOk;
+  }
+
+  // menú nativo de compartir en el celular; en la compu copia el link
+  function shareUrl(url, title, statusEl) {
+    function show(msg) {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      statusEl.hidden = false;
+      clearTimeout(statusEl._t);
+      statusEl._t = setTimeout(function () {
+        statusEl.hidden = true;
+      }, 3000);
+    }
+
+    if (navigator.share) {
+      navigator.share({ title: title, url: url }).catch(function () {
+        /* el usuario cerró el menú */
+      });
+      return;
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(
+        function () {
+          show("Link copiado. Pegalo donde quieras compartirlo.");
+        },
+        function () {
+          window.prompt("Copiá el link:", url);
+        }
+      );
+      return;
+    }
+    window.prompt("Copiá el link:", url);
+  }
+
+  // abre lo que venga en la URL (producto o carrito compartido) y después
+  // limpia la URL para que recargar la página no lo vuelva a aplicar
+  function handleIncomingLink() {
+    var params = new URLSearchParams(window.location.search);
+    var cartParam = params.get("c");
+    var productParam = params.get("p");
+    if (!cartParam && !productParam) return;
+
+    var cartData = cartParam ? parseCartToken(cartParam) : null;
+    var productId = productParam ? decodeId(productParam) : null;
+
+    if (cartData) {
+      var items = [];
+      cartData.i.forEach(function (entry) {
+        var product = state.byId[decodeId(String(entry[0]))];
+        var qty = Math.max(1, parseInt(entry[1], 10) || 1);
+        if (!product) return;
+        items.push({
+          productId: product.id_producto,
+          nombre: product.nombre_producto,
+          sku: product.sku_producto,
+          foto: photoUrl(product),
+          qty: qty,
+        });
+      });
+
+      var replace =
+        items.length > 0 &&
+        (state.cart.length === 0 ||
+          window.confirm("Abriste un carrito compartido. ¿Querés reemplazar tu carrito actual por este?"));
+      if (replace) {
+        var mode = cartData.m || "contado";
+        var fecha = cartData.f;
+        state.cart = items;
+        state.cartMode = isValidMode(mode) ? mode : "contado";
+        // una fecha vencida no sirve como inicio de cuotas: se pide de nuevo
+        state.startDate =
+          state.cartMode !== "contado" && /^\d{4}-\d{2}-\d{2}$/.test(fecha || "") && fecha >= todayISO()
+            ? fecha
+            : null;
+        var vendedorId = cartData.v ? decodeId(String(cartData.v)) : null;
+        if (vendedorId) state.vendedorId = vendedorId;
+        saveCart();
+        renderSellerSelect();
+        renderCart();
+        openCart();
+      }
+    } else if (productId && state.byId[productId]) {
+      openModal(state.byId[productId]);
+    }
+
+    try {
+      window.history.replaceState(null, "", baseUrl());
+    } catch (e) {
+      /* file:// u otro contexto sin history */
+    }
+  }
+
+  // ---------- vendedores ----------
+
+  function currentVendedor() {
+    if (!state.vendedorId) return null;
+    return (
+      state.vendedores.filter(function (v) {
+        return String(v.id_empleado) === String(state.vendedorId);
+      })[0] || null
+    );
+  }
+
+  function vendedorName(v) {
+    return ((v.nombre_empleado || "") + " " + (v.apellido_empleado || "")).trim();
+  }
+
+  // celular como viene de la base (ej. "351 311-9444", "0351153119444")
+  // -> formato internacional para wa.me (549 + área + número). Si el número
+  // trae el "15" local después del código de área, hay que corregirlo en la
+  // base: acá no se puede saber cuántos dígitos tiene el código de área.
+  function normalizeWhatsapp(raw) {
+    var d = (raw || "").replace(/\D/g, "");
+    if (d.indexOf("00") === 0) d = d.slice(2);
+    if (d.indexOf("549") === 0) return d.length >= 12 ? d : null;
+    if (d.indexOf("54") === 0) d = d.slice(2);
+    if (d.charAt(0) === "0") d = d.slice(1);
+    return d.length >= 10 ? "549" + d : null;
+  }
+
+  function whatsappTarget() {
+    var v = currentVendedor();
+    var number = v ? normalizeWhatsapp(v.celular_empleado) : null;
+    return { vendedor: v, number: number || WHATSAPP_NUMBER };
+  }
+
+  function renderSellerSelect() {
+    if (state.vendedores.length === 0) {
+      els.cartSellerRow.hidden = true;
+      return;
+    }
+    if (!currentVendedor()) state.vendedorId = null;
+
+    var html = '<option value="" disabled' + (state.vendedorId ? "" : " selected") + ">Seleccioná un vendedor</option>";
+    state.vendedores.forEach(function (v) {
+      var id = String(v.id_empleado);
+      html +=
+        '<option value="' +
+        escapeHtml(id) +
+        '"' +
+        (String(state.vendedorId) === id ? " selected" : "") +
+        ">" +
+        escapeHtml(vendedorName(v)) +
+        "</option>";
+    });
+    els.cartSeller.innerHTML = html;
+    els.cartSellerRow.hidden = false;
+  }
+
+  function fetchJson(url) {
+    return fetch(url).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    });
+  }
+
+  // route=emp devuelve todos los empleados con datos personales: se filtra
+  // acá y se descarta todo menos id, nombre y celular. Es solo un respaldo
+  // hasta que esté subido route=vendedores en la API.
+  function vendedoresFromEmp(json) {
+    var rows = json && json.success === true && Array.isArray(json.data) ? json.data : [];
+    return rows
+      .filter(function (e) {
+        return VENDEDOR_ROLES.indexOf(Number(e.id_rol_empleado)) !== -1 && e.estado === "A" && e.celular_empleado;
+      })
+      .map(function (e) {
+        return {
+          id_empleado: e.id_empleado,
+          nombre_empleado: e.nombre_empleado,
+          apellido_empleado: e.apellido_empleado,
+          celular_empleado: e.celular_empleado,
+        };
+      })
+      .sort(function (a, b) {
+        return vendedorName(a).localeCompare(vendedorName(b), "es");
+      });
+  }
+
+  // el vendedor es obligatorio para WhatsApp y PDF: si falta, se avisa al
+  // tocar el botón en vez de desactivarlo. Solo si la lista no se pudo
+  // cargar se deja pasar con el número general para no bloquear la venta.
+  function ensureSeller() {
+    if (state.vendedoresStatus === "error" || currentVendedor()) return true;
+    els.cartSellerHint.textContent =
+      state.vendedoresStatus === "loading"
+        ? "Cargando vendedores, esperá un momento..."
+        : "Elegí un vendedor para finalizar el pedido o descargar el PDF.";
+    els.cartSellerHint.hidden = false;
+    els.cartSeller.classList.add("is-missing");
+    if (!els.cartSellerRow.hidden) {
+      els.cartSellerRow.scrollIntoView({ behavior: "smooth", block: "center" });
+      els.cartSeller.focus();
+    }
+    return false;
+  }
+
+  function hideSellerWarning() {
+    els.cartSellerHint.hidden = true;
+    els.cartSeller.classList.remove("is-missing");
+  }
+
+  function loadVendedores() {
+    return fetchJson(VENDEDORES_URL)
+      .then(
+        function (json) {
+          if (!json || json.success !== true || !Array.isArray(json.data)) throw new Error("Respuesta inesperada");
+          return json.data;
+        },
+        function () {
+          return fetchJson(EMPLEADOS_URL).then(vendedoresFromEmp);
+        }
+      )
+      .then(function (list) {
+        state.vendedores = list;
+        state.vendedoresStatus = list.length > 0 ? "ok" : "error";
+      })
+      .catch(function (err) {
+        // sin vendedores el carrito sigue funcionando con el número general
+        console.warn("No se pudieron cargar los vendedores", err);
+        state.vendedores = [];
+        state.vendedoresStatus = "error";
+      })
+      .then(function () {
+        renderSellerSelect();
+        renderCart();
+      });
   }
 
   // ---------- filtros ----------
@@ -567,6 +884,8 @@
       "</div>" +
       "</div>" +
       '<button type="button" id="modal-add-cart" class="btn-load-more">Agregar al carrito</button>' +
+      '<button type="button" id="modal-share" class="btn-pdf">Compartir producto</button>' +
+      '<p id="modal-share-status" class="share-status" role="status" hidden></p>' +
       '<p class="modal-hint">La forma de pago (contado / plan) se elige una sola vez para todo el carrito, desde el botón "Elegir plan y fecha".</p>' +
       "</div>";
 
@@ -583,6 +902,9 @@
       addToCart(product, qty);
       closeModal();
       openCart();
+    });
+    document.getElementById("modal-share").addEventListener("click", function () {
+      shareUrl(productLink(product), product.nombre_producto, document.getElementById("modal-share-status"));
     });
 
     els.overlay.hidden = false;
@@ -663,6 +985,8 @@
         state.cart = parsed.items;
         state.cartMode = parsed.mode || "contado";
         state.startDate = parsed.startDate || null;
+        state.vendedorId = parsed.vendedorId || null;
+        state.includeLink = parsed.includeLink !== false;
       } else {
         state.cart = [];
       }
@@ -675,7 +999,13 @@
     try {
       localStorage.setItem(
         CART_KEY,
-        JSON.stringify({ items: state.cart, mode: state.cartMode, startDate: state.startDate })
+        JSON.stringify({
+          items: state.cart,
+          mode: state.cartMode,
+          startDate: state.startDate,
+          vendedorId: state.vendedorId,
+          includeLink: state.includeLink,
+        })
       );
     } catch (e) {
       /* almacenamiento no disponible */
@@ -803,9 +1133,17 @@
     }
 
     els.cartTotal.textContent = money(cartTotal());
+    var vendedor = currentVendedor();
     var needsDate = !!freqLabel && !state.startDate;
     els.cartCheckout.disabled = state.cart.length === 0 || needsDate;
     els.cartPdf.disabled = state.cart.length === 0 || needsDate;
+    els.cartShare.disabled = state.cart.length === 0;
+    els.cartIncludeLink.checked = state.includeLink;
+    if (vendedor) hideSellerWarning();
+
+    els.cartCheckout.textContent = vendedor
+      ? "Enviar pedido a " + (vendedor.nombre_empleado || "vendedor") + " por WhatsApp"
+      : "Finalizar pedido por WhatsApp";
   }
 
   function openCart() {
@@ -823,7 +1161,9 @@
   }
 
   function buildWhatsappMessage() {
-    var lines = ["Hola! Quiero hacer este pedido:", "", "Forma de pago: " + genericModeLabel(state.cartMode)];
+    var vendedor = currentVendedor();
+    var greeting = vendedor ? "Hola " + (vendedor.nombre_empleado || "") + "!" : "Hola!";
+    var lines = [greeting + " Quiero hacer este pedido:", "", "Forma de pago: " + genericModeLabel(state.cartMode)];
     var scheduleTxt = currentScheduleText();
     if (scheduleTxt) lines.push(scheduleTxt);
     lines.push("");
@@ -843,6 +1183,10 @@
     });
     lines.push("");
     lines.push("Total: " + money(cartTotal()));
+    if (state.includeLink) {
+      lines.push("");
+      lines.push("Ver carrito: " + cartLink());
+    }
     return lines.join("\n");
   }
 
@@ -876,6 +1220,7 @@
       .join("");
 
     var today = new Date().toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" });
+    var vendedor = currentVendedor();
     var scheduleTxt = currentScheduleText();
     var freqLabel = currentFreqLabel();
 
@@ -938,6 +1283,7 @@
       "</style></head><body>" +
       "<div class='brand-row'><img src='" + logoUrl + "' alt='PlanHogar'><h1>PlanHogar</h1></div>" +
       "<p class='date'>Pedido del " + today + "</p>" +
+      (vendedor ? "<p class='plan'>Vendedor: " + escapeHtml(vendedorName(vendedor)) + "</p>" : "") +
       "<p class='plan'>Forma de pago: " + escapeHtml(genericModeLabel(state.cartMode)) + "</p>" +
       (scheduleTxt ? "<p class='schedule'>" + escapeHtml(scheduleTxt) + "</p>" : "") +
       "<table><thead><tr><th>#</th><th>Producto</th><th>Cant.</th><th>Cuota</th><th>Subtotal</th></tr></thead>" +
@@ -1000,11 +1346,28 @@
   });
   els.cartCheckout.addEventListener("click", function () {
     if (state.cart.length === 0) return;
+    if (!ensureSeller()) return;
     var msg = buildWhatsappMessage();
-    var url = "https://wa.me/" + WHATSAPP_NUMBER + "?text=" + encodeURIComponent(msg);
+    var url = "https://wa.me/" + whatsappTarget().number + "?text=" + encodeURIComponent(msg);
     window.open(url, "_blank", "noopener");
   });
-  els.cartPdf.addEventListener("click", downloadOrderPdf);
+  els.cartPdf.addEventListener("click", function () {
+    if (!ensureSeller()) return;
+    downloadOrderPdf();
+  });
+  els.cartShare.addEventListener("click", function () {
+    if (state.cart.length === 0) return;
+    shareUrl(cartLink(), "Mi carrito PlanHogar", els.cartShareStatus);
+  });
+  els.cartSeller.addEventListener("change", function () {
+    state.vendedorId = els.cartSeller.value || null;
+    saveCart();
+    renderCart();
+  });
+  els.cartIncludeLink.addEventListener("change", function () {
+    state.includeLink = els.cartIncludeLink.checked;
+    saveCart();
+  });
   els.cartItems.addEventListener("click", function (evt) {
     var btn = evt.target.closest("button[data-action]");
     if (!btn) return;
@@ -1027,6 +1390,7 @@
 
   loadCart();
   renderCart();
+  loadVendedores();
 
   fetch(API_URL)
     .then(function (res) {
@@ -1046,6 +1410,7 @@
       populateFilters(state.all);
       applyFilters();
       renderCart();
+      handleIncomingLink();
     })
     .catch(function (err) {
       console.error(err);
