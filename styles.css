@@ -776,8 +776,10 @@ body.no-scroll {
 @media (max-width: 480px) {
   .filters {
     flex-direction: column;
+    align-items: stretch;
   }
   .filter-group {
+    flex: none;
     min-width: 0;
   }
 
