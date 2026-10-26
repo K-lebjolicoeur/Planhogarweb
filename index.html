@@ -42,6 +42,14 @@
       </select>
     </div>
 
+    <div class="filter-group">
+      <label for="stock-filter">Disponibilidad</label>
+      <select id="stock-filter">
+        <option value="">Todos</option>
+        <option value="disponible">Solo disponibles</option>
+      </select>
+    </div>
+
     <button id="clear-filters" class="btn-clear" type="button">Limpiar filtros</button>
   </section>
 
@@ -62,7 +70,7 @@
 
 <footer class="site-footer">
   <p>Diseñado por <a href="https://persevera.com.ar/" target="_blank" rel="noopener">Persevera</a></p>
-  <p>&copy; 2026 PlanHogar v1.1.0</p>
+  <p>&copy; 2026 PlanHogar v1.2.0</p>
 </footer>
 
 <div id="overlay" class="overlay" hidden></div>
@@ -110,7 +118,32 @@
     </div>
     <p id="cart-seller-hint" class="cart-seller-hint" role="alert" hidden></p>
   </div>
-  <div id="cart-items" class="cart-items"></div>
+  <div class="cart-scroll">
+    <div id="cart-items" class="cart-items"></div>
+    <section id="cart-client" class="cart-client" aria-labelledby="cart-client-title" hidden>
+      <h3 id="cart-client-title">Tus datos</h3>
+      <div class="client-field">
+        <label for="client-name">Nombre completo *</label>
+        <input type="text" id="client-name" autocomplete="name" maxlength="50">
+      </div>
+      <div class="client-field">
+        <label for="client-dni">DNI o CUIT/CUIL *</label>
+        <input type="text" id="client-dni" inputmode="numeric" maxlength="13" autocomplete="off" placeholder="12345678 o 20-12345678-9">
+      </div>
+      <div class="client-field">
+        <label for="client-address">Dirección *</label>
+        <input type="text" id="client-address" autocomplete="street-address" maxlength="80" placeholder="Calle, número, barrio, ciudad">
+        <button id="client-geo" class="btn-geo" type="button">📍 Usar mi ubicación actual</button>
+        <p id="client-geo-status" class="client-geo-status" hidden></p>
+        <small class="client-help">Escribí la dirección, compartí tu ubicación, o las dos.</small>
+      </div>
+      <div class="client-field">
+        <label for="client-notes">Descripción (opcional)</label>
+        <textarea id="client-notes" rows="3" maxlength="150" placeholder="Referencias de la casa, horario para visitar, aclaraciones..."></textarea>
+      </div>
+      <p id="client-hint" class="cart-seller-hint" role="alert" hidden></p>
+    </section>
+  </div>
   <div class="cart-footer">
     <div class="cart-total-row">
       <span>Total</span>

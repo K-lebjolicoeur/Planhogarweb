@@ -37,7 +37,7 @@ https://api.planhogar.com.ar/index.php?route=prod&limit=5000
 
 Las fotos salen de `https://api.planhogar.com.ar/uploads/` + el campo `foto_producto` (constante `IMG_BASE`). Si un producto no tiene foto, se usa un ícono de casa genérico (SVG inline, `PLACEHOLDER_IMG`).
 
-Campos de la API que se usan: `id_producto`, `sku_producto`, `nombre_producto`, `precio_contado`, `precio_plan_1/2/3`, `foto_producto`, `id_rubro`/`rubro`, `id_etiqueta`/`nombre_etiqueta`, `nombre_estado_producto` (se ocultan los productos en estado `"Inactivo"`).
+Campos de la API que se usan: `id_producto`, `sku_producto`, `nombre_producto`, `precio_contado`, `precio_plan_1/2/3`, `foto_producto`, `id_rubro`/`rubro`, `id_etiqueta`/`nombre_etiqueta`, `nombre_estado_producto` (se ocultan los productos en estado `"Inactivo"`), `cantidadFinal` (stock: "Disponible: N" o "Sin stock" si es 0 o negativo).
 
 ## Planes de financiación
 
@@ -89,6 +89,12 @@ Funciones clave en `app.js`: `shiftSunday`, `scheduleTextFromDate` (texto descri
 - En el celular se usa el menú nativo de compartir; en la compu se copia el link al portapapeles.
 - **Vendedor**: selector en el carrito, cargado de `https://api.planhogar.com.ar/index.php?route=vendedores` (`VENDEDORES_URL`; empleados activos con rol Vendedor o Cobrador, `id_rol_empleado` 5 y 6; el endpoint devuelve solo nombre y celular). Si esa ruta no responde, se usa `route=emp` (`EMPLEADOS_URL`) filtrando en el navegador. El pedido por WhatsApp va al celular del vendedor elegido; sin vendedor va a `WHATSAPP_NUMBER`. Si el endpoint falla, el selector se oculta y todo sigue andando con el número general.
 - El mensaje de WhatsApp puede incluir el link del carrito (casilla "Incluir link del carrito en el mensaje").
+
+## Datos del cliente
+
+En el carrito, bloque "Tus datos": nombre completo, DNI (7 u 8 dígitos) o CUIT/CUIL (11 dígitos, con guiones automáticos y validación del dígito verificador; el campo solo acepta números), dirección escrita y/o ubicación GPS ("Usar mi ubicación actual", genera un link de Google Maps), y descripción opcional. Nombre, DNI y dirección-o-ubicación son obligatorios para enviar por WhatsApp o descargar el PDF; si falta algo se muestra un aviso y se marca el campo. Los datos van en el mensaje de WhatsApp y en el PDF.
+
+Se guardan en `localStorage` (`ph_cliente_v1`), aparte del carrito, para no recargarlos en cada pedido. **Nunca** se incluyen en el link compartido del carrito. La ubicación GPS solo funciona en HTTPS (o `localhost`).
 
 ## Cosas para cambiar a mano si hace falta
 

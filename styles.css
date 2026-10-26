@@ -625,10 +625,98 @@ body.no-scroll {
   background: var(--color-primary-tint);
 }
 
-.cart-items {
+.stock {
+  margin: 2px 0 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1e7a46;
+}
+
+.stock.is-out {
+  color: #b3261e;
+}
+
+.cart-scroll {
   flex: 1;
   overflow-y: auto;
+}
+
+.cart-items {
   padding: 12px 16px;
+}
+
+.cart-client {
+  padding: 4px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cart-client h3 {
+  margin: 4px 0 0;
+  font-size: 0.95rem;
+}
+
+.client-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.client-field label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.client-field input,
+.client-field textarea {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.client-field textarea {
+  resize: vertical;
+}
+
+.client-field .is-missing {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-tint);
+}
+
+.btn-geo {
+  align-self: flex-start;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.btn-geo:hover {
+  background: #f0f1f3;
+}
+
+.client-geo-status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-primary-dark);
+}
+
+.client-geo-status a {
+  color: inherit;
+  font-weight: 700;
+}
+
+.client-help {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
 }
 
 .cart-empty {

@@ -10,6 +10,7 @@
   var VENDEDOR_ROLES = [5, 6]; // id_rol_empleado: Vendedor, Cobrador
   var WHATSAPP_NUMBER = "5493513119444"; // se usa si no se elige vendedor
   var CART_KEY = "ph_cart_v3";
+  var CLIENT_KEY = "ph_cliente_v1"; // datos del cliente, aparte del carrito (no viajan en el link)
 
   // definición de los planes de financiación. "plan_casa" reutiliza el
   // mismo campo/monto que Plan 3 (10 meses), solo aparece con otro nombre
@@ -49,6 +50,7 @@
     search: document.getElementById("search"),
     rubro: document.getElementById("rubro"),
     etiqueta: document.getElementById("etiqueta"),
+    stockFilter: document.getElementById("stock-filter"),
     clearBtn: document.getElementById("clear-filters"),
     loadMoreBtn: document.getElementById("load-more"),
     resultsCount: document.getElementById("results-count"),
@@ -83,6 +85,14 @@
     cartShare: document.getElementById("cart-share"),
     cartShareStatus: document.getElementById("cart-share-status"),
     cartSellerHint: document.getElementById("cart-seller-hint"),
+    cartClient: document.getElementById("cart-client"),
+    clientName: document.getElementById("client-name"),
+    clientDni: document.getElementById("client-dni"),
+    clientAddress: document.getElementById("client-address"),
+    clientNotes: document.getElementById("client-notes"),
+    clientGeo: document.getElementById("client-geo"),
+    clientGeoStatus: document.getElementById("client-geo-status"),
+    clientHint: document.getElementById("client-hint"),
   };
 
   var state = {
@@ -97,6 +107,7 @@
     vendedorId: null, // id_empleado elegido en el carrito, o null (número general)
     vendedoresStatus: "loading", // "loading" | "ok" | "error"
     includeLink: true, // agregar el link del carrito al mensaje de WhatsApp
+    cliente: { nombre: "", dni: "", direccion: "", lat: null, lng: null, notas: "" },
   };
 
   function normalize(str) {
@@ -421,6 +432,172 @@
     els.cartSeller.classList.remove("is-missing");
   }
 
+  // ---------- datos del cliente ----------
+  // se guardan en este navegador para no volver a cargarlos en cada
+  // pedido, pero nunca se ponen en el link compartido del carrito
+
+  function loadClient() {
+    try {
+      var parsed = JSON.parse(localStorage.getItem(CLIENT_KEY) || "null");
+      if (parsed && typeof parsed === "object") {
+        Object.keys(state.cliente).forEach(function (k) {
+          if (parsed[k] != null) state.cliente[k] = parsed[k];
+        });
+      }
+    } catch (e) {
+      /* almacenamiento no disponible */
+    }
+  }
+
+  function saveClient() {
+    try {
+      localStorage.setItem(CLIENT_KEY, JSON.stringify(state.cliente));
+    } catch (e) {
+      /* almacenamiento no disponible */
+    }
+  }
+
+  function mapsLink() {
+    var c = state.cliente;
+    if (c.lat == null || c.lng == null) return null;
+    return "https://www.google.com/maps?q=" + c.lat + "," + c.lng;
+  }
+
+  function renderGeoStatus() {
+    var link = mapsLink();
+    if (!link) {
+      els.clientGeoStatus.hidden = true;
+      els.clientGeo.textContent = "📍 Usar mi ubicación actual";
+      return;
+    }
+    els.clientGeoStatus.innerHTML =
+      'Ubicación cargada. <a href="' + link + '" target="_blank" rel="noopener">Ver en el mapa</a> · ' +
+      '<a href="#" id="client-geo-clear">Quitar</a>';
+    els.clientGeoStatus.hidden = false;
+    els.clientGeo.textContent = "📍 Actualizar ubicación";
+  }
+
+  function fillClientForm() {
+    // maxlength no recorta valores guardados antes del límite actual
+    state.cliente.nombre = state.cliente.nombre.slice(0, els.clientName.maxLength);
+    state.cliente.direccion = state.cliente.direccion.slice(0, els.clientAddress.maxLength);
+    state.cliente.notas = state.cliente.notas.slice(0, els.clientNotes.maxLength);
+    els.clientName.value = state.cliente.nombre;
+    state.cliente.dni = cleanDni(state.cliente.dni);
+    els.clientDni.value = formatDoc(state.cliente.dni);
+    els.clientAddress.value = state.cliente.direccion;
+    els.clientNotes.value = state.cliente.notas;
+    renderGeoStatus();
+  }
+
+  function requestLocation() {
+    if (!navigator.geolocation) {
+      els.clientGeoStatus.textContent = "Tu navegador no permite compartir la ubicación. Escribí la dirección.";
+      els.clientGeoStatus.hidden = false;
+      return;
+    }
+    els.clientGeo.disabled = true;
+    els.clientGeoStatus.textContent = "Buscando tu ubicación...";
+    els.clientGeoStatus.hidden = false;
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        state.cliente.lat = Number(pos.coords.latitude.toFixed(6));
+        state.cliente.lng = Number(pos.coords.longitude.toFixed(6));
+        saveClient();
+        els.clientGeo.disabled = false;
+        els.clientAddress.classList.remove("is-missing");
+        renderGeoStatus();
+      },
+      function (err) {
+        els.clientGeo.disabled = false;
+        els.clientGeoStatus.textContent =
+          err.code === 1
+            ? "No diste permiso para ver tu ubicación. Podés habilitarlo en el navegador o escribir la dirección."
+            : "No se pudo obtener tu ubicación. Probá de nuevo o escribí la dirección.";
+        els.clientGeoStatus.hidden = false;
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+    );
+  }
+
+  function cleanDni(value) {
+    return (value || "").replace(/\D/g, "").slice(0, 11);
+  }
+
+  // DNI tal cual (12345678); CUIT/CUIL con guiones (20-12345678-9)
+  function formatDoc(digits) {
+    if (digits.length <= 8) return digits;
+    return digits.slice(0, 2) + "-" + digits.slice(2, 10) + (digits.length > 10 ? "-" + digits.slice(10) : "");
+  }
+
+  function docLabel(digits) {
+    return digits.length === 11 ? "CUIT/CUIL" : "DNI";
+  }
+
+  // dígito verificador de CUIT/CUIL (módulo 11)
+  function isValidCuit(digits) {
+    if (!/^\d{11}$/.test(digits)) return false;
+    var weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+    var sum = 0;
+    for (var i = 0; i < 10; i++) sum += Number(digits.charAt(i)) * weights[i];
+    var check = 11 - (sum % 11);
+    if (check === 11) check = 0;
+    if (check === 10) return false;
+    return check === Number(digits.charAt(10));
+  }
+
+  // null si es válido, o el texto del problema
+  function docProblem(digits) {
+    if (digits.length === 7 || digits.length === 8) return null;
+    if (digits.length === 11) return isValidCuit(digits) ? null : "CUIT/CUIL inválido, revisá los números";
+    return "DNI (8 números) o CUIT/CUIL (11 números)";
+  }
+
+  // nombre, DNI y (dirección o ubicación) son obligatorios; si falta algo
+  // se avisa, se marca el campo y se lleva el foco al primero que falta
+  function ensureClient() {
+    var c = state.cliente;
+    var missing = [];
+    var dni = cleanDni(c.dni);
+    if (c.nombre.trim().split(/\s+/).length < 2) missing.push([els.clientName, "nombre y apellido"]);
+    var docError = docProblem(dni);
+    if (docError) missing.push([els.clientDni, docError]);
+    if (!c.direccion.trim() && !mapsLink()) missing.push([els.clientAddress, "dirección o ubicación"]);
+
+    [els.clientName, els.clientDni, els.clientAddress].forEach(function (el) {
+      el.classList.remove("is-missing");
+    });
+    if (missing.length === 0) {
+      els.clientHint.hidden = true;
+      return true;
+    }
+    missing.forEach(function (m) {
+      m[0].classList.add("is-missing");
+    });
+    els.clientHint.textContent =
+      "Completá tus datos: " +
+      missing
+        .map(function (m) {
+          return m[1];
+        })
+        .join(", ") +
+      ".";
+    els.clientHint.hidden = false;
+    missing[0][0].scrollIntoView({ behavior: "smooth", block: "center" });
+    missing[0][0].focus({ preventScroll: true });
+    return false;
+  }
+
+  function clientLines() {
+    var c = state.cliente;
+    var doc = cleanDni(c.dni);
+    var lines = ["Cliente: " + c.nombre.trim(), docLabel(doc) + ": " + formatDoc(doc)];
+    if (c.direccion.trim()) lines.push("Dirección: " + c.direccion.trim());
+    if (mapsLink()) lines.push("Ubicación: " + mapsLink());
+    if (c.notas.trim()) lines.push("Descripción: " + c.notas.trim());
+    return lines;
+  }
+
   function loadVendedores() {
     return fetchJson(VENDEDORES_URL)
       .then(
@@ -487,6 +664,21 @@
     });
   }
 
+  // ---------- stock ----------
+  // cantidadFinal viene de la API; los negativos (ajustes de stock) se
+  // muestran como sin stock
+
+  function stockOf(p) {
+    return Math.max(0, parseInt(p.cantidadFinal, 10) || 0);
+  }
+
+  function stockHtml(p, cls) {
+    var n = stockOf(p);
+    return n > 0
+      ? '<p class="' + cls + '">Disponible: ' + n + "</p>"
+      : '<p class="' + cls + ' is-out">Sin stock</p>';
+  }
+
   // ---------- tarjetas ----------
 
   function cardHtml(p) {
@@ -518,6 +710,7 @@
       '<p class="card-sku">Código: ' +
       escapeHtml(p.sku_producto || "-") +
       "</p>" +
+      stockHtml(p, "stock") +
       '<div class="price-contado"><small>Precio contado</small>' +
       money(p.precio_contado) +
       "</div>" +
@@ -538,10 +731,12 @@
     var term = normalize(els.search.value.trim());
     var rubro = els.rubro.value;
     var etiqueta = els.etiqueta.value;
+    var soloDisponibles = els.stockFilter.value === "disponible";
 
     state.filtered = state.all.filter(function (p) {
       if (rubro && String(p.id_rubro) !== rubro) return false;
       if (etiqueta && String(p.id_etiqueta) !== etiqueta) return false;
+      if (soloDisponibles && stockOf(p) === 0) return false;
       if (term) {
         var hay =
           normalize(p.nombre_producto).indexOf(term) !== -1 ||
@@ -576,6 +771,7 @@
     els.search.value = "";
     els.rubro.value = "";
     els.etiqueta.value = "";
+    els.stockFilter.value = "";
     applyFilters();
   }
 
@@ -868,6 +1064,7 @@
       '<p class="modal-sku">Código: ' +
       escapeHtml(product.sku_producto || "-") +
       "</p>" +
+      stockHtml(product, "stock") +
       '<div class="modal-contado"><small>Precio de contado</small>' +
       money(product.precio_contado) +
       "</div>" +
@@ -1140,6 +1337,7 @@
     els.cartShare.disabled = state.cart.length === 0;
     els.cartIncludeLink.checked = state.includeLink;
     if (vendedor) hideSellerWarning();
+    els.cartClient.hidden = state.cart.length === 0;
 
     els.cartCheckout.textContent = vendedor
       ? "Enviar pedido a " + (vendedor.nombre_empleado || "vendedor") + " por WhatsApp"
@@ -1163,7 +1361,9 @@
   function buildWhatsappMessage() {
     var vendedor = currentVendedor();
     var greeting = vendedor ? "Hola " + (vendedor.nombre_empleado || "") + "!" : "Hola!";
-    var lines = [greeting + " Quiero hacer este pedido:", "", "Forma de pago: " + genericModeLabel(state.cartMode)];
+    var lines = [greeting + " Quiero hacer este pedido:", ""]
+      .concat(clientLines())
+      .concat(["", "Forma de pago: " + genericModeLabel(state.cartMode)]);
     var scheduleTxt = currentScheduleText();
     if (scheduleTxt) lines.push(scheduleTxt);
     lines.push("");
@@ -1276,6 +1476,8 @@
       "small{color:#6b7280;}" +
       ".total{margin-top:16px;text-align:right;font-size:1.2rem;font-weight:bold;}" +
       "h2.pay-title{margin-top:36px;color:#f7941d;font-size:1.05rem;}" +
+      ".client h2.pay-title{margin-top:20px;}" +
+      ".client p{margin:4px 0;font-size:0.9rem;}" +
       "table.pay-table th,table.pay-table td{border:1px solid #1c2230;padding:10px;}" +
       "table.pay-table td:nth-child(4),table.pay-table td:nth-child(5),table.pay-table td:nth-child(6){min-height:28px;}" +
       "table.pay-table tr{page-break-inside:avoid;}" +
@@ -1284,6 +1486,19 @@
       "<div class='brand-row'><img src='" + logoUrl + "' alt='PlanHogar'><h1>PlanHogar</h1></div>" +
       "<p class='date'>Pedido del " + today + "</p>" +
       (vendedor ? "<p class='plan'>Vendedor: " + escapeHtml(vendedorName(vendedor)) + "</p>" : "") +
+      "<div class='client'><h2 class='pay-title'>Datos del cliente</h2>" +
+      clientLines()
+        .map(function (line) {
+          var i = line.indexOf(": ");
+          var key = line.slice(0, i);
+          var val = line.slice(i + 2);
+          var valHtml = key === "Ubicación"
+            ? "<a href='" + escapeHtml(val) + "'>Ver en Google Maps</a>"
+            : escapeHtml(val);
+          return "<p><strong>" + escapeHtml(key) + ":</strong> " + valHtml + "</p>";
+        })
+        .join("") +
+      "</div>" +
       "<p class='plan'>Forma de pago: " + escapeHtml(genericModeLabel(state.cartMode)) + "</p>" +
       (scheduleTxt ? "<p class='schedule'>" + escapeHtml(scheduleTxt) + "</p>" : "") +
       "<table><thead><tr><th>#</th><th>Producto</th><th>Cant.</th><th>Cuota</th><th>Subtotal</th></tr></thead>" +
@@ -1307,6 +1522,7 @@
   els.search.addEventListener("input", debounce(applyFilters, 250));
   els.rubro.addEventListener("change", applyFilters);
   els.etiqueta.addEventListener("change", applyFilters);
+  els.stockFilter.addEventListener("change", applyFilters);
   els.clearBtn.addEventListener("click", clearFilters);
   els.loadMoreBtn.addEventListener("click", renderNextPage);
 
@@ -1346,14 +1562,43 @@
   });
   els.cartCheckout.addEventListener("click", function () {
     if (state.cart.length === 0) return;
-    if (!ensureSeller()) return;
+    if (!ensureSeller() || !ensureClient()) return;
     var msg = buildWhatsappMessage();
     var url = "https://wa.me/" + whatsappTarget().number + "?text=" + encodeURIComponent(msg);
     window.open(url, "_blank", "noopener");
   });
   els.cartPdf.addEventListener("click", function () {
-    if (!ensureSeller()) return;
+    if (!ensureSeller() || !ensureClient()) return;
     downloadOrderPdf();
+  });
+  [
+    [els.clientName, "nombre"],
+    [els.clientAddress, "direccion"],
+    [els.clientNotes, "notas"],
+  ].forEach(function (pair) {
+    pair[0].addEventListener("input", function () {
+      state.cliente[pair[1]] = pair[0].value;
+      pair[0].classList.remove("is-missing");
+      saveClient();
+    });
+  });
+  // solo números: las letras y símbolos se descartan al escribir/pegar y
+  // los guiones del CUIT/CUIL se ponen solos
+  els.clientDni.addEventListener("input", function () {
+    var digits = cleanDni(els.clientDni.value);
+    els.clientDni.value = formatDoc(digits);
+    state.cliente.dni = digits;
+    els.clientDni.classList.remove("is-missing");
+    saveClient();
+  });
+  els.clientGeo.addEventListener("click", requestLocation);
+  els.clientGeoStatus.addEventListener("click", function (evt) {
+    if (evt.target.id !== "client-geo-clear") return;
+    evt.preventDefault();
+    state.cliente.lat = null;
+    state.cliente.lng = null;
+    saveClient();
+    renderGeoStatus();
   });
   els.cartShare.addEventListener("click", function () {
     if (state.cart.length === 0) return;
@@ -1389,6 +1634,8 @@
   // ---------- carga inicial ----------
 
   loadCart();
+  loadClient();
+  fillClientForm();
   renderCart();
   loadVendedores();
 
